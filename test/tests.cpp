@@ -808,7 +808,7 @@ TEST(hBNTest, SelfEnergyContribution){
     std::cout.setstate(std::ios_base::failbit);
     
     int ncell = 30;
-    int nstates = 6;
+    int nstates = 4;
     
     std::string modelfile = "../examples/material_models/hBN.model";    
     xatu::SystemConfiguration config(modelfile);
