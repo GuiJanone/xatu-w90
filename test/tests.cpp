@@ -812,10 +812,10 @@ TEST(hBNTest, SelfEnergyContribution){
     
     std::string modelfile = "../examples/material_models/hBN.model";    
     xatu::SystemConfiguration config(modelfile);
-    exciton.setExchange(true);
-    exciton.setSelfEnergy(true);
     
     xatu::ExcitonTB exciton = xatu::ExcitonTB(config, ncell, 1, 0, {1, 1, 10});
+    exciton.setExchange(true);
+    exciton.setSelfEnergy(true);
     
     exciton.brillouinZoneMesh(ncell);
     exciton.initializeHamiltonian();
