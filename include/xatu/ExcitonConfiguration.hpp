@@ -36,6 +36,8 @@ class ExcitonConfiguration : public ConfigurationBase{
         double ry;
         // Screening length
         double rz;
+        // Hubbard U
+        arma::vec hubbardU = {};
         // Thickness of layer
         double d;
         // Calculation mode (either 'realspace' or 'reciprocalspace')
@@ -60,7 +62,7 @@ class ExcitonConfiguration : public ConfigurationBase{
 
     public:
         configuration excitonInfo;
-        std::vector<std::string> supportedPotentials = {"keldysh", "coulomb"};
+        std::vector<std::string> supportedPotentials = {"keldysh", "coulomb", "hubbard"};
     
     public:
         ExcitonConfiguration();

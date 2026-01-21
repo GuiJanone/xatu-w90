@@ -28,18 +28,24 @@ void ExcitonTB::initializeExcitonAttributes(int ncell, const arma::ivec& bands,
     this->r0_         = parameters(2);
     // Set ry
     if (parameters.n_elem >= 4) {
-        this->ry_ = parameters(3);
+        this->ry_       = parameters(3);
+        this->hubbardU_ = parameters(3);
     } else {
         this->ry_ = r0_;
+        this->hubbardU_ = r0_;
     }
 
     // Set rz
     if (parameters.n_elem >= 5) {
-        this->rz_ = parameters(4);
+        this->rz_       = parameters(4);
+        this->hubbardU_ = parameters(4);
     } else {
         this->rz_ = 0.5 * (this->r0_ + this->ry_);
     }
-    
+    // hubbardU always set as last element of parameters vector
+    if (parameters.n_elem >= 6) {
+        this->hubbardU_ = parameters(5); 
+    }
     this->cutoff_     = ncell/2.5; // Default value, seems to preserve crystal point group
 
     if(r0 == 0){
@@ -59,7 +65,7 @@ void ExcitonTB::initializeExcitonAttributes(const ExcitonConfiguration& cfg){
     int ncell        = cfg.excitonInfo.ncell;
     int nbands       = cfg.excitonInfo.nbands;
     arma::ivec bands = cfg.excitonInfo.bands;
-    arma::rowvec parameters = arma::conv_to<arma::rowvec>::from(cfg.excitonInfo.eps);
+    arma::rowvec parameters = arma::conv_to<arma::rowvec>::from(join_cols(cfg.excitonInfo.eps, cfg.excitonInfo.hubbardU));
     arma::rowvec Q   = cfg.excitonInfo.Q;
 
     if (bands.empty()){
@@ -430,6 +436,22 @@ double ExcitonTB::coulomb(arma::rowvec r){
 }
 
 /**
+ * Hubbard potential in real space.
+ * @param r Distance at which we evaluate the potential.
+ * @param strength Hubbard U parameter.
+ * @return Value of Coulomb potential, V(r).
+ */
+
+
+double ExcitonTB::hubbard(arma::rowvec r){
+    double R = abs(arma::norm(r));
+    if (R > 0.0){
+        return 0.0;
+    }
+    return hubbardU;
+}
+
+/**
  * Method to select the potential to be used in the of the exciton calculation.
  * @param potential Potential to be used in the direct term.
  * @return Pointer to function representing the potential.
@@ -442,8 +464,11 @@ potptr ExcitonTB::selectPotential(std::string potential){
     else if(potential == "coulomb"){
         return &ExcitonTB::coulomb;
     }
+    else if(potential == "hubbard"){
+        return &ExcitonTB::hubbard;
+    }
     else{
-        throw std::invalid_argument("selectPotential(): potential must be either 'keldysh' or 'coulomb'");
+        throw std::invalid_argument("selectPotential(): potential must be either 'keldysh', 'coulomb' or 'hubbard'");
     }
 }
 

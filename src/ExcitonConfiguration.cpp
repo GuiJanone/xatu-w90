@@ -94,7 +94,7 @@ void ExcitonConfiguration::parseContent(){
         }
         else if(arg == "exchange.potential"){
             std::string str = parseWord(content[0]);
-            std::cout << arg << " " << str << std::endl;
+            //std::cout << arg << " " << str << std::endl;
             excitonInfo.exchangePotential = str;
         }
         else if(arg == "selfenergy"){
@@ -108,12 +108,16 @@ void ExcitonConfiguration::parseContent(){
         }
         else if(arg == "selfenergy.potential"){
             std::string str = parseWord(content[0]);
-            std::cout << arg << " " << str << std::endl;
+            //std::cout << arg << " " << str << std::endl;
             excitonInfo.selfenergyPotential = str;
         }
         else if(arg == "potential"){
             std::string str = parseWord(content[0]);
             excitonInfo.potential = str;
+        }
+        else if(arg == "hubbardu"){
+            std::vector<double> hubbardU = parseLine<double>(content[0]);
+            excitonInfo.hubbardU = arma::vec(hubbardU);
         }
         else if(arg == "scissor"){
             excitonInfo.scissor = parseScalar<double>(content[0]);
@@ -141,9 +145,9 @@ void ExcitonConfiguration::checkContentCoherence(){
     if(excitonInfo.bands.empty() && excitonInfo.nbands == 0){
         throw std::logic_error("'bands' must be specified");
     };
-    if(excitonInfo.eps.empty()){
-        throw std::logic_error("'dielectric' must be specified");
-    };
+    // if(excitonInfo.eps.empty()){
+    //     throw std::logic_error("'dielectric' must be specified");
+    // };
     if(excitonInfo.nbands == 0 && excitonInfo.bands.empty()){
         throw std::invalid_argument("Must specify 'nbands' or 'bandlist' parameters");
     };
@@ -163,13 +167,28 @@ void ExcitonConfiguration::checkContentCoherence(){
         }
     }
     if (!potentialFound){
-        throw std::invalid_argument("Specified 'potential' not supported. Use 'keldysh' or 'coulomb'");
+        throw std::invalid_argument("Specified 'potential' not supported. Use 'keldysh', 'coulomb' or 'hubbard'");
+    }
+    if (excitonInfo.potential == "keldysh" && excitonInfo.eps.empty()){
+        throw std::logic_error("Specified 'keldysh' potential needs a dielectric environment defined");
+    }
+    if (excitonInfo.eps.n_elem >= 6){
+        throw std::logic_error("Dielectric environment has too many elements");
+    }
+    if (excitonInfo.potential == "hubbard" && excitonInfo.hubbardU.empty()){
+        throw std::invalid_argument("Specified 'hubbard' potential needs a non-zero Hubbard U defined");
+    }
+    if (excitonInfo.potential == "hubbard" && excitonInfo.mode != "realspace"){
+        throw std::invalid_argument("Specified 'hubbard' potential only implemented for interactions in real space");
+    }
+    if (excitonInfo.hubbardU.n_elem >= 2){
+        throw std::logic_error("Hubbard interaction strength U has too many elements");
     }
     if (excitonInfo.exchange && !exchangePotentialFound){
-        throw std::invalid_argument("Specified 'exchange.potential' not supported. Use 'keldysh' or 'coulomb'");
+        throw std::invalid_argument("Specified 'exchange.potential' not supported. Use 'keldysh', 'coulomb' or 'hubbard'");
     }
     if (excitonInfo.selfenergy && !selfenergyPotentialFound){
-        throw std::invalid_argument("Specified 'selfenergy.potential' not supported. Use 'keldysh' or 'coulomb'");
+        throw std::invalid_argument("Specified 'selfenergy.potential' not supported. Use 'keldysh', 'coulomb' or 'hubbard'");
     }
     if (excitonInfo.mode != "realspace" && excitonInfo.mode != "reciprocalspace"){
         throw std::invalid_argument("Invalid mode. Use 'realspace' or 'reciprocalspace'");

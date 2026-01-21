@@ -30,6 +30,9 @@ class ExcitonTB : public Exciton<SystemTB> {
         // Keldysh potential constants
         double eps_m_, eps_s_, r0_, ry_, rz_;
         double regularization_;
+        
+        // Hubbard interaction strength
+        double hubbardU_;
 
         // Flags
         std::string gauge_ = "lattice";
@@ -58,6 +61,8 @@ class ExcitonTB : public Exciton<SystemTB> {
         const double& ry = ry_;
         // Returns effective screening length rz
         const double& rz = rz_;
+        // Returns hubbard interaction strength U
+        const double& hubbardU = hubbardU_;
         // Returns regularization distance
         const double& regularization = regularization_;
         // Returns gauge for Bloch states
@@ -76,22 +81,22 @@ class ExcitonTB : public Exciton<SystemTB> {
     public:
         // Specify number of bands participating (int)
         ExcitonTB(const SystemConfiguration&, int ncell = 20, int nbands = 1, int nrmbands = 0, 
-                 const arma::rowvec& parameters = {1, 5, 1, 1, 1}, const arma::rowvec& Q = {0., 0., 0.});
+                 const arma::rowvec& parameters = {1, 5, 1, 1, 1, 1}, const arma::rowvec& Q = {0., 0., 0.});
 
         // Specify which bands participate (vector with band numbers)
         ExcitonTB(const SystemConfiguration&, int ncell = 20, const arma::ivec& bands = {0, 1}, 
-                 const arma::rowvec& parameters = {1, 5, 1, 1, 1}, const arma::rowvec& Q = {0., 0., 0.});
+                 const arma::rowvec& parameters = {1, 5, 1, 1, 1, 1}, const arma::rowvec& Q = {0., 0., 0.});
         
         // Use two files: the mandatory one for system config., and one for exciton config.
         ExcitonTB(const SystemConfiguration&, const ExcitonConfiguration&);
 
         // Initialize exciton passing directly a System object instead of a file using removed bands
         ExcitonTB(std::shared_ptr<SystemTB>, int ncell = 20, int nbands = 1, int nrmbands = 0, 
-                 const arma::rowvec& parameters = {1, 5, 1, 1, 1}, const arma::rowvec& Q = {0., 0., 0.});
+                 const arma::rowvec& parameters = {1, 5, 1, 1, 1, 1}, const arma::rowvec& Q = {0., 0., 0.});
 
         // Initialize exciton passing directly a System object instead of a file using bands vector
         ExcitonTB(std::shared_ptr<SystemTB>, int ncell = 20, const arma::ivec& bands = {0, 1}, 
-                 const arma::rowvec& parameters = {1, 5, 1, 1, 1}, const arma::rowvec& Q = {0., 0., 0.});
+                 const arma::rowvec& parameters = {1, 5, 1, 1, 1, 1}, const arma::rowvec& Q = {0., 0., 0.});
 
         // ~ExcitonTB();
 
@@ -108,6 +113,7 @@ class ExcitonTB : public Exciton<SystemTB> {
         double keldysh(arma::rowvec);
         void STVH0(double, double*);
         double coulomb(arma::rowvec);
+        double hubbard(arma::rowvec);
         potptr selectPotential(std::string);
 
         // Fourier transforms
