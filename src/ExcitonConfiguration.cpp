@@ -125,6 +125,15 @@ void ExcitonConfiguration::parseContent(){
         else if(arg == "regularization"){
             excitonInfo.regularization = parseScalar<double>(content[0]);
         }
+        else if(arg == "tammdancoff"){
+            std::string str = parseWord(content[0]);
+            if ((str != "true") && (str != "false")){
+                throw std::invalid_argument("Tamm-Dancoff approximation option must be set to 'true' or 'false'.");
+            }
+            if (str == "false"){
+                excitonInfo.tammdancoff = false;
+            }
+        }
         else{    
             std::cout << "Unexpected argument: " << arg << ", skipping block..." << std::endl;
         }

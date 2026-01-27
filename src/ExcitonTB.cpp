@@ -101,6 +101,7 @@ void ExcitonTB::initializeExcitonAttributes(const ExcitonConfiguration& cfg){
     this->exchangePotential_ = cfg.excitonInfo.exchangePotential;
     this->selfenergyPotential_ = cfg.excitonInfo.selfenergyPotential;
     
+    this->tammdancoff = cfg.excitonInfo.tammdancoff;
 }
 
 /**
@@ -987,6 +988,12 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
     std::cout << "Initializing Bethe-Salpeter matrix... " << std::flush;
 
     HBS_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
+    if(!this->tammdancoff){
+        HBS_ = arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE);
+    }
+    HBSres_  = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
+    HBScoup_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
+    HBSares_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
     
     // To be able to parallelize over the triangular matrix, we build
     uint64_t loopLength = basisDimBSE*(basisDimBSE + 1)/2.;
@@ -996,6 +1003,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
     for(uint64_t n = 0; n < loopLength; n++){
 
         arma::cx_vec coefsK, coefsK2, coefsKQ, coefsK2Q;
+        arma::cx_vec coefsKsw, coefsK2sw, coefsKQsw, coefsK2Qsw;
 
         uint64_t ii = loopLength - 1 - n;
         uint64_t m  = floor((sqrt(8*ii + 1) - 1)/2);
@@ -1026,9 +1034,11 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         }
 
         std::complex<double> D, X, selfcond, selfval = 0.0;
+        std::complex<double> Dcoup, Dares, Xcoup, Xares = 0.0;
         if (mode == "realspace"){
             uint32_t effective_k_index = system_->findEquivalentPointBZ(system->kpoints.row(k2_index) - system->kpoints.row(k_index), ncell);
             arma::cx_mat motifFT = ftMotifStack.slice(effective_k_index);
+            // Direct and exchange terms for resonant block of BSE matrix
             D = realSpaceInteractionTerm(coefsKQ, coefsK2, coefsK2Q, coefsK, motifFT);
             if(this->exchange){
                 X = realSpaceInteractionTerm(coefsKQ, coefsK2, coefsK, coefsK2Q, this->ftMotifQ);
@@ -1045,7 +1055,23 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                         selfval = selfenergyTerm(false, k2_index, k_index, coefsK2, coefsK);
                     }
                 }
-            }           
+            }
+            if(!this->tammdancoff){
+                // Hcoup terms correspond to a swap c2<->v2
+                // Hares terms correspond to swapping both c2<->v2 and c<->v
+                coefsKsw = eigvecKStack.slice(k_index).col(c);
+                coefsKQsw = eigvecKQStack.slice(kQ_index).col(v);
+                coefsK2sw = eigvecKStack.slice(k2_index).col(c2);
+                coefsK2Qsw = eigvecKQStack.slice(k2Q_index).col(v2);
+                    
+                Dcoup = realSpaceInteractionTerm(coefsKQ, coefsK2, coefsK2Qsw, coefsK, motifFT);
+                Dares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsK2Qsw, coefsKsw, motifFT);;
+                if(this->exchange){
+                    Xcoup = realSpaceInteractionTerm(coefsKQ, coefsK2sw, coefsK, coefsK2Qsw, this->ftMotifQ);
+                    Xares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsKsw, coefsK2Qsw, this->ftMotifQ);
+                }
+                
+            }
         }
         else if (mode == "reciprocalspace"){
             arma::rowvec k = system->kpoints.row(k_index);
@@ -1057,15 +1083,40 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         }
         
         if (i == j){
-            HBS_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(c) + selfcond) - (eigvalKStack.col(k_index)(v) + selfval))/2.
-            - (D - X)/2.;
+            if(!this->tammdancoff){
+                HBSres_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(c) + selfcond) - (eigvalKStack.col(k_index)(v) + selfval))/2.
+                - (D - X)/2.;
+                
+                HBScoup_(i, j) = (Dcoup + Xcoup)/2.;
+                
+                HBSares_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(v) /*+ selfcond*/) - (eigvalKStack.col(k_index)(c)/* + selfval*/))/2.
+                - (Dares - Xares)/2.;
+            }
+            else if(this->tammdancoff){
+                HBS_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(c) + selfcond) - (eigvalKStack.col(k_index)(v) + selfval))/2.
+                - (D - X)/2.;
+            }
         }
         else{
-            HBS_(i, j) =  - (D - X);
+            if(!this->tammdancoff){
+                HBSres_(i, j)  = - (D - X);
+                HBScoup_(i, j) = (D + X);
+                HBSares_(i, j) = - (Dares - Xares);
+            }
+            else if(this->tammdancoff){
+                HBS_(i, j)  = - (D - X);
+            }
         };
     }
-       
-    HBS_ = HBS + HBS.t();
+    if(!this->tammdancoff){
+        HBSres_  = HBSres_  + HBSres_.t();
+        HBScoup_ = HBScoup_ + HBScoup_.t();
+        HBSares_ = HBSares_ + HBSares_.t();
+        HBS_ = join_rows(join_cols(HBSres_, HBScoup_), join_cols(- (HBScoup_.t()), HBSares_));
+    }
+    else if(this->tammdancoff){
+        HBS_ = HBS + HBS.t();
+    }
     std::cout << "Done" << std::endl;
 };
 

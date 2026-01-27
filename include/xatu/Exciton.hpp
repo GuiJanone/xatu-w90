@@ -38,10 +38,15 @@ class Exciton {
         arma::rowvec Q_;
         double cutoff_;
         arma::cx_mat HBS_;
+        arma::cx_mat HBSres_;
+        arma::cx_mat HBSares_;
+        arma::cx_mat HBScoup_;
 
         // Flags
         bool exchange = false;
         bool selfenergy = false;
+        
+        bool tammdancoff = true;
 
         // Internals for BSE
         arma::mat eigvalKStack_, eigvalKQStack_;

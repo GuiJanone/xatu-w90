@@ -58,6 +58,8 @@ class ExcitonConfiguration : public ConfigurationBase{
         bool selfenergy = false;
         // Potential to use in selfenergy term
         std::string selfenergyPotential = "keldysh";
+        // Flag to set whether or not to use the Tamm-Dancoff approximation
+        bool tammdancoff = true;
     };
 
     public:
