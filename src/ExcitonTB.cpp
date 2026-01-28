@@ -1064,11 +1064,11 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                 coefsK2sw = eigvecKStack.slice(k2_index).col(c2);
                 coefsK2Qsw = eigvecKQStack.slice(k2Q_index).col(v2);
                     
-                Dcoup = realSpaceInteractionTerm(coefsKQ, coefsK2, coefsK2Qsw, coefsK, motifFT);
-                Dares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsK2Qsw, coefsKsw, motifFT);;
+                Dcoup = realSpaceInteractionTerm(coefsKQ, coefsK2sw, coefsK2Qsw, coefsK, motifFT);
+                Dares = realSpaceInteractionTerm(coefsKsw, coefsK2Qsw, coefsK2sw, coefsKQsw, motifFT);;
                 if(this->exchange){
                     Xcoup = realSpaceInteractionTerm(coefsKQ, coefsK2sw, coefsK, coefsK2Qsw, this->ftMotifQ);
-                    Xares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsKsw, coefsK2Qsw, this->ftMotifQ);
+                    Xares = realSpaceInteractionTerm(coefsKsw, coefsK2Qsw, coefsKQsw, coefsK2sw, this->ftMotifQ);
                 }
                 
             }
