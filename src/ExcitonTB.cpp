@@ -1100,7 +1100,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         else{
             if(!this->tammdancoff){
                 HBSres_(i, j)  = - (D - X);
-                HBScoup_(i, j) = (D + X);
+                HBScoup_(i, j) = (Dcoup + Xcoup);
                 HBSares_(i, j) = - (Dares - Xares);
             }
             else if(this->tammdancoff){
