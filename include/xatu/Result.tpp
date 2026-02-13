@@ -403,16 +403,16 @@ void Result<T>::writeRealspaceAmplitude(int stateindex, int holeIndex,
 template <typename T>
 void Result<T>::writeEigenvalues(FILE* textfile, int n){
 
-    // if (!this->tammdancoff){
-    //     if(n > 2*exciton->excitonbasisdim || n < 0){
-    //         throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
-    //     }
-    // }
-    // else{
-    //     if(n > exciton->excitonbasisdim || n < 0){
-    //         throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
-    //     }
-    // }
+    if (!exciton->TDA){
+        if(n > 2*exciton->excitonbasisdim || n < 0){
+            throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
+        }
+    }
+    else{
+        if(n > exciton->excitonbasisdim || n < 0){
+            throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+        }
+    }
 
     // first line: number of cells
     fprintf(textfile, "%d\n", exciton->excitonbasisdim);
@@ -435,16 +435,16 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n){
  */
 template <typename T>
 void Result<T>::writeStates(FILE* textfile, int n){
-    // if (!this->tammdancoff){
-    //     if(n > 2*exciton->excitonbasisdim || n < 0){
-    //         throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
-    //     }
-    // }
-    // else{
-    //     if(n > exciton->excitonbasisdim || n < 0){
-    //         throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
-    //     }
-    // }
+    if (! exciton->TDA){
+        if(n > 2*exciton->excitonbasisdim || n < 0){
+            throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
+        }
+    }
+    else{
+        if(n > exciton->excitonbasisdim || n < 0){
+            throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+        }
+    }
     // First write basis
     fprintf(textfile, "%d\n", exciton->excitonbasisdim);
     for(unsigned int i = 0; i < exciton->excitonbasisdim; i++){
