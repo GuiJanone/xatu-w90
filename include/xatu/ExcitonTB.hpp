@@ -33,6 +33,8 @@ class ExcitonTB : public Exciton<SystemTB> {
         
         // Hubbard interaction strength
         double hubbardU_;
+        double hubbardU1_;
+        double hubbarddist_;
 
         // Flags
         std::string gauge_ = "lattice";
@@ -63,6 +65,10 @@ class ExcitonTB : public Exciton<SystemTB> {
         const double& rz = rz_;
         // Returns hubbard interaction strength U
         const double& hubbardU = hubbardU_;
+        // Returns hubbard interaction strength U
+        const double& hubbardU1 = hubbardU1_;
+        // Returns hubbard interaction strength U
+        const double& hubbarddist = hubbarddist_;
         // Returns regularization distance
         const double& regularization = regularization_;
         // Returns gauge for Bloch states
