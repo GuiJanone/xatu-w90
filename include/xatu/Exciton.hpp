@@ -43,10 +43,10 @@ class Exciton {
         arma::cx_mat HBScoup_;
 
         // Flags
-        bool exchange = false;
-        bool selfenergy = false;
+        bool exchange;
+        bool selfenergy;
         
-        bool tammdancoff = true;
+        bool tammdancoff_;
 
         // Internals for BSE
         arma::mat eigvalKStack_, eigvalKQStack_;
@@ -81,7 +81,7 @@ class Exciton {
         // Returns scissor cut value
         const double& scissor = scissor_;
         // Returns whether or not TDA is used
-        const bool TDA = tammdancoff;
+        const bool TDA = tammdancoff_;
 
         const arma::mat& eigvalKStack = eigvalKStack_;
         const arma::mat& eigvalKQStack = eigvalKQStack_;
@@ -110,6 +110,8 @@ class Exciton {
         void setScissor(double);
         void setExchange(bool);
         void setSelfEnergy(bool);
+        void setTDA(bool);
+        
         
 
     protected:

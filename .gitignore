@@ -7,4 +7,5 @@ docs/
 .DS_store
 .vs/
 .vscode/
+temp/
 Makefile

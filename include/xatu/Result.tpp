@@ -407,23 +407,41 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n){
         if(n > 2*exciton->excitonbasisdim || n < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
         }
+        // first line: number of cells
+        fprintf(textfile, "%d\n", 2*exciton->excitonbasisdim);
+        
+        // second line: how many eigenvalues will follow
+        int maxEigval = (n == 0) ? 2*exciton->excitonbasisdim : n;
+        fprintf(textfile, "%d\n", maxEigval);
+        
+        // then one eigenvalue per line
+        if (n < exciton->excitonbasisdim){
+            for(int i = exciton->excitonbasisdim; i < std::min(2*exciton->excitonbasisdim,exciton->excitonbasisdim+maxEigval); ++i){
+                fprintf(textfile, " %11.7lf\n", eigval(i));
+            }
+        }
+        else{
+            for(int i = 0; i < maxEigval; ++i){
+                fprintf(textfile, " %11.7lf\n", eigval(i));
+            }
+        }
     }
-    else{
+    else if (exciton->TDA){
+        //std::cout << exciton->TDA << std::endl;
         if(n > exciton->excitonbasisdim || n < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
         }
-    }
-
-    // first line: number of cells
-    fprintf(textfile, "%d\n", exciton->excitonbasisdim);
-
-    // second line: how many eigenvalues will follow
-    int maxEigval = (n == 0) ? exciton->excitonbasisdim : n;
-    fprintf(textfile, "%d\n", maxEigval);
-
-    // then one eigenvalue per line
-    for(int i = 0; i < maxEigval; ++i){
-        fprintf(textfile, " %11.7lf\n", eigval(i));
+        // first line: number of cells
+        fprintf(textfile, "%d\n", exciton->excitonbasisdim);
+        
+        // second line: how many eigenvalues will follow
+        int maxEigval = (n == 0) ? exciton->excitonbasisdim : n;
+        fprintf(textfile, "%d\n", maxEigval);
+        
+        // then one eigenvalue per line
+        for(int i = 0; i < maxEigval; ++i){
+            fprintf(textfile, " %11.7lf\n", eigval(i));
+        }
     }
 }
 
@@ -435,35 +453,55 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n){
  */
 template <typename T>
 void Result<T>::writeStates(FILE* textfile, int n){
-    if (! exciton->TDA){
+    if (!exciton->TDA){
         if(n > 2*exciton->excitonbasisdim || n < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
         }
+        // First write basis
+        fprintf(textfile, "%d\n", exciton->excitonbasisdim);
+        for(unsigned int i = 0; i <  exciton->excitonbasisdim; i++){
+            arma::irowvec state = exciton->basisStates.row(i);
+            arma::rowvec kpoint = system->kpoints.row(state(2));
+            int v = state(0);
+            int c = state(1);
+            fprintf(textfile, "%11.7lf\t%11.7lf\t%11.7lf\t%d\t%d\n", 
+                    kpoint(0), kpoint(1), kpoint(2), v, c);
+        }
+        
+        int nstates = (n == 0) ?  exciton->excitonbasisdim : n;  
+        for(unsigned int i = exciton->excitonbasisdim; i < std::min(2*exciton->excitonbasisdim,exciton->excitonbasisdim+nstates); i++){
+            for(unsigned int j = 0; j <  2*exciton->excitonbasisdim; j++){
+                fprintf(textfile, "%11.7lf\t%11.7lf\t", 
+                        real(eigvec.col(i)(j)), imag(eigvec.col(i)(j)));
+            }
+            fprintf(textfile, "\n");
+        }
     }
-    else{
+    else if (exciton->TDA){
         if(n > exciton->excitonbasisdim || n < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
         }
-    }
-    // First write basis
-    fprintf(textfile, "%d\n", exciton->excitonbasisdim);
-    for(unsigned int i = 0; i < exciton->excitonbasisdim; i++){
-        arma::irowvec state = exciton->basisStates.row(i);
-        arma::rowvec kpoint = system->kpoints.row(state(2));
-        int v = state(0);
-        int c = state(1);
-        fprintf(textfile, "%11.7lf\t%11.7lf\t%11.7lf\t%d\t%d\n", 
-                kpoint(0), kpoint(1), kpoint(2), v, c);
+        // First write basis
+        fprintf(textfile, "%d\n", exciton->excitonbasisdim);
+        for(unsigned int i = 0; i < exciton->excitonbasisdim; i++){
+            arma::irowvec state = exciton->basisStates.row(i);
+            arma::rowvec kpoint = system->kpoints.row(state(2));
+            int v = state(0);
+            int c = state(1);
+            fprintf(textfile, "%11.7lf\t%11.7lf\t%11.7lf\t%d\t%d\n", 
+                    kpoint(0), kpoint(1), kpoint(2), v, c);
+        }
+        
+        int nstates = (n == 0) ? exciton->excitonbasisdim : n;  
+        for(unsigned int i = 0; i < nstates; i++){
+            for(unsigned int j = 0; j < exciton->excitonbasisdim; j++){
+                fprintf(textfile, "%11.7lf\t%11.7lf\t", 
+                        real(eigvec.col(i)(j)), imag(eigvec.col(i)(j)));
+            }
+            fprintf(textfile, "\n");
+        }
     }
 
-    int nstates = (n == 0) ? exciton->excitonbasisdim : n;  
-    for(unsigned int i = 0; i < nstates; i++){
-        for(unsigned int j = 0; j < exciton->excitonbasisdim; j++){
-            fprintf(textfile, "%11.7lf\t%11.7lf\t", 
-                    real(eigvec.col(i)(j)), imag(eigvec.col(i)(j)));
-        }
-        fprintf(textfile, "\n");
-    }
 }
 
 /**
@@ -474,16 +512,30 @@ void Result<T>::writeStates(FILE* textfile, int n){
 template <typename T>
 void Result<T>::writeSpin(int n, FILE* textfile){
 
-    if(n > exciton->excitonbasisdim || n < 0){
-        throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+    if (!exciton->TDA){
+        if(n > 2*exciton->excitonbasisdim || n < 0){
+            throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
+        }
+        int maxState = (n == 0) ? 2*exciton->excitonbasisdim : n;  
+        fprintf(textfile, "n\tSt\tSe\tSh\n");
+        for(unsigned int i = exciton->excitonbasisdim; i < std::min(2*exciton->excitonbasisdim,exciton->excitonbasisdim+maxState); i++){
+            auto spin = spinX(i);
+            fprintf(textfile, "%d\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
+        }
+    }
+    else{
+        if(n > exciton->excitonbasisdim || n < 0){
+            throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+        }
+        int maxState = (n == 0) ? exciton->excitonbasisdim : n;  
+        fprintf(textfile, "n\tSt\tSe\tSh\n");
+        for(unsigned int i = 0; i < maxState; i++){
+            auto spin = spinX(i);
+            fprintf(textfile, "%d\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
+        }
     }
 
-    int maxState = (n == 0) ? exciton->excitonbasisdim : n;  
-    fprintf(textfile, "n\tSt\tSe\tSh\n");
-    for(unsigned int i = 0; i < maxState; i++){
-        auto spin = spinX(i);
-        fprintf(textfile, "%d\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
-    }
+
 }
 
 /**

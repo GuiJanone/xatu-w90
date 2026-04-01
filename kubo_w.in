@@ -1,7 +1,7 @@
 #initial frequency (eV)
 1
 #frequency range (eV)
-6
+10
 #number of frequency points (integer)
 400
 #broadening parameter (eV)

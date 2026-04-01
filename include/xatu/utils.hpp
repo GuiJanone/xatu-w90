@@ -42,7 +42,7 @@ void printEnergies(const std::unique_ptr<T>& results, int n = 8, int precision =
     printf("+---------------+-----------------------------+-----------------------------+\n");
     printf("|       N       |          Eigval (eV)        |          Degeneracy         |\n");
     printf("+---------------+-----------------------------+-----------------------------+\n");
-
+    
     std::vector<std::vector<double>> pairs = detectDegeneracies(results->eigval, n, precision);
     int it = 1;
 

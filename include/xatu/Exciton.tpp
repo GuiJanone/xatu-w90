@@ -127,6 +127,16 @@ void Exciton<T>::setSelfEnergy(bool selfenergy){
     this->selfenergy = selfenergy;
 }
 
+/**
+ * To toggle on or off the TDA in the Bethe-Salpeter.
+ * @param tda Either true of false
+ * @return void
+ */
+template <typename T>
+void Exciton<T>::setTDA(bool tda){
+    this->tammdancoff_ = tda;
+}
+
 /*------------------------------------ Electron-hole pair basis ------------------------------------*/
 
 /**

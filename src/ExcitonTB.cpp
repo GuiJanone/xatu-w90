@@ -101,7 +101,7 @@ void ExcitonTB::initializeExcitonAttributes(const ExcitonConfiguration& cfg){
     this->exchangePotential_ = cfg.excitonInfo.exchangePotential;
     this->selfenergyPotential_ = cfg.excitonInfo.selfenergyPotential;
     
-    this->tammdancoff = cfg.excitonInfo.tammdancoff;
+    this->tammdancoff_ = cfg.excitonInfo.tammdancoff;
 }
 
 /**
@@ -988,7 +988,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
     std::cout << "Initializing Bethe-Salpeter matrix... " << std::flush;
 
     HBS_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
-    if(!this->tammdancoff){
+    if(!this->tammdancoff_){
         HBS_ = arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE);
     }
     HBSres_  = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
@@ -1056,7 +1056,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                     }
                 }
             }
-            if(!this->tammdancoff){
+            if(!this->tammdancoff_){
                 // Hcoup terms correspond to a swap c2<->v2
                 // Hares terms correspond to swapping both c2<->v2 and c<->v
                 coefsKsw = eigvecKStack.slice(k_index).col(c);
@@ -1087,7 +1087,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         }
         
         if (i == j){
-            if(!this->tammdancoff){
+            if(!this->tammdancoff_){
                 HBSres_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(c) + selfcond) - (eigvalKStack.col(k_index)(v) + selfval))/2.
                 - (D - X)/2.;
                 
@@ -1096,30 +1096,30 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                 HBSares_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(v) /*+ selfcond*/) - (eigvalKStack.col(k_index)(c)/* + selfval*/))/2.
                 - (Dares - Xares)/2.;
             }
-            else if(this->tammdancoff){
+            else if(this->tammdancoff_){
                 HBS_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(c) + selfcond) - (eigvalKStack.col(k_index)(v) + selfval))/2.
                 - (D - X)/2.;
             }
         }
         else{
-            if(!this->tammdancoff){
+            if(!this->tammdancoff_){
                 HBSres_(i, j)  = - (D - X);
                 // HBScoup_(i, j) =   (Dcoup + Xcoup); //this expression is wrong, according to PRB.92.045209
                 HBScoup_(i, j) = - (Dcoup - Xcoup);
                 HBSares_(i, j) = - (Dares - Xares);
             }
-            else if(this->tammdancoff){
+            else if(this->tammdancoff_){
                 HBS_(i, j)  = - (D - X);
             }
         };
     }
-    if(!this->tammdancoff){
+    if(!this->tammdancoff_){
         HBSres_  = HBSres_  + HBSres_.t();
         HBScoup_ = HBScoup_ + HBScoup_.t();
         HBSares_ = HBSares_ + HBSares_.t();
-        HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, HBSares_ ));
+        HBS_ = join_rows( join_cols( HBSres_, (HBScoup_.t()) ), join_cols( HBScoup_, HBSares_ ));
     }
-    else if(this->tammdancoff){
+    else if(this->tammdancoff_){
         HBS_ = HBS + HBS.t();
     }
     std::cout << "Done" << std::endl;
@@ -1618,6 +1618,9 @@ void ExcitonTB::printInformation(){
     if(selfenergy){
         cout << std::left << std::setw(30) << "Self-Energy: " << (selfenergy ? "True" : "False") << endl;
         cout << std::left << std::setw(30) << "Self-Energy potential: " << selfenergyPotential_ << endl;
+    }
+    if(!tammdancoff_){
+        cout << std::left << std::setw(30) << "Tamm-Dancoff Approximation: " << (tammdancoff_ ? "True" : "False") << endl;
     }
     if(arma::norm(Q) > 1E-7){
         cout << std::left << std::setw(30) << "Q: "; 

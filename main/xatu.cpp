@@ -152,8 +152,23 @@ int main(int argc, char* argv[]){
     cout << "+---------------------------------------------------------------------------+" << endl;
     cout << "|                                    Results                                |" << endl;
     cout << "+---------------------------------------------------------------------------+" << endl;
+    if (!excitonConfig->excitonInfo.tammdancoff){
+        if (nstates==0){
+            xatu::printEnergies(results, 0, decimals);
+        }
+        else{
+            if (nstates < bulkExciton.excitonbasisdim){
+                xatu::printEnergies(results, bulkExciton.excitonbasisdim + nstates, decimals);
+            }
+            else{
+                 xatu::printEnergies(results, nstates, decimals);
+            }
+        }
+    }
+    else if (excitonConfig->excitonInfo.tammdancoff){
+        xatu::printEnergies(results, nstates, decimals);
+    }
 
-    xatu::printEnergies(results, nstates, decimals);
 
     cout << "+---------------------------------------------------------------------------+" << endl;
     cout << "|                                    Output                                 |" << endl;
