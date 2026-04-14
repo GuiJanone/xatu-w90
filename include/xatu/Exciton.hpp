@@ -81,7 +81,7 @@ class Exciton {
         // Returns scissor cut value
         const double& scissor = scissor_;
         // Returns whether or not TDA is used
-        const bool TDA = tammdancoff_;
+        const bool& TDA = tammdancoff_;
 
         const arma::mat& eigvalKStack = eigvalKStack_;
         const arma::mat& eigvalKQStack = eigvalKQStack_;

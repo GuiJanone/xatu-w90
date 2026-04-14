@@ -402,7 +402,6 @@ void Result<T>::writeRealspaceAmplitude(int stateindex, int holeIndex,
  */
 template <typename T>
 void Result<T>::writeEigenvalues(FILE* textfile, int n){
-
     if (!exciton->TDA){
         if(n > 2*exciton->excitonbasisdim || n < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
@@ -426,8 +425,7 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n){
             }
         }
     }
-    else if (exciton->TDA){
-        //std::cout << exciton->TDA << std::endl;
+    else{
         if(n > exciton->excitonbasisdim || n < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
         }
@@ -468,8 +466,10 @@ void Result<T>::writeStates(FILE* textfile, int n){
                     kpoint(0), kpoint(1), kpoint(2), v, c);
         }
         
-        int nstates = (n == 0) ?  exciton->excitonbasisdim : n;  
-        for(unsigned int i = exciton->excitonbasisdim; i < std::min(2*exciton->excitonbasisdim,exciton->excitonbasisdim+nstates); i++){
+        int nstates = (n == 0) ?  2*exciton->excitonbasisdim : n;
+        int minState = (n < exciton->excitonbasisdim && n != 0) ? exciton->excitonbasisdim : 0; 
+        
+        for(unsigned int i = minState; i < minState + nstates; i++){
             for(unsigned int j = 0; j <  2*exciton->excitonbasisdim; j++){
                 fprintf(textfile, "%11.7lf\t%11.7lf\t", 
                         real(eigvec.col(i)(j)), imag(eigvec.col(i)(j)));
@@ -477,7 +477,7 @@ void Result<T>::writeStates(FILE* textfile, int n){
             fprintf(textfile, "\n");
         }
     }
-    else if (exciton->TDA){
+    else{
         if(n > exciton->excitonbasisdim || n < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
         }
@@ -517,8 +517,9 @@ void Result<T>::writeSpin(int n, FILE* textfile){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
         }
         int maxState = (n == 0) ? 2*exciton->excitonbasisdim : n;  
+        int minState = (n < exciton->excitonbasisdim) ? exciton->excitonbasisdim : 0; 
         fprintf(textfile, "n\tSt\tSe\tSh\n");
-        for(unsigned int i = exciton->excitonbasisdim; i < std::min(2*exciton->excitonbasisdim,exciton->excitonbasisdim+maxState); i++){
+        for(unsigned int i = minState; i < minState+maxState; i++){
             auto spin = spinX(i);
             fprintf(textfile, "%d\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
         }

@@ -218,15 +218,27 @@ int main(int argc, char* argv[]){
         FILE* textfile_kwf = fopen(filename_kwf.c_str(), "w");
 
         std::cout << "Writing k w.f. to file: " << filename_kwf << std::endl;
-        for(int stateindex = 0; stateindex < nstates; stateindex++){
-            if (excitonConfig->excitonInfo.submeshFactor != 1){
-                results->writeReciprocalAmplitude(stateindex, textfile_kwf);
+        if ((!bulkExciton.TDA) && (nstates < bulkExciton.excitonbasisdim)){
+            for(int stateindex = bulkExciton.excitonbasisdim; stateindex < bulkExciton.excitonbasisdim+nstates; stateindex++){
+                if (excitonConfig->excitonInfo.submeshFactor != 1){
+                    results->writeReciprocalAmplitude(stateindex, textfile_kwf);
+                }
+                else{
+                    results->writeExtendedReciprocalAmplitude(stateindex, textfile_kwf);
+                }
             }
-            else{
-                results->writeExtendedReciprocalAmplitude(stateindex, textfile_kwf);
+        
+        }
+        else{
+            for(int stateindex = 0; stateindex < nstates; stateindex++){
+                if (excitonConfig->excitonInfo.submeshFactor != 1){
+                    results->writeReciprocalAmplitude(stateindex, textfile_kwf);
+                }
+                else{
+                    results->writeExtendedReciprocalAmplitude(stateindex, textfile_kwf);
+                }
             }
         }
-
         fclose(textfile_kwf);
     }
     
@@ -234,8 +246,14 @@ int main(int argc, char* argv[]){
     if(writeRSWF){
         std::string filename_rswf = output + ".rswf";
         FILE* textfile_rswf = fopen(filename_rswf.c_str(), "w");
-
         arma::uvec statesToWrite = arma::regspace<arma::uvec>(0, nstates - 1);
+        std::cout << statesToWrite << std::endl;
+        if (!bulkExciton.TDA){
+            if (nstates < bulkExciton.excitonbasisdim){
+                statesToWrite = arma::regspace<arma::uvec>(bulkExciton.excitonbasisdim, bulkExciton.excitonbasisdim + nstates - 1);
+                std::cout << statesToWrite << std::endl;
+            }
+        }
         std::cout << "Writing real space w.f. to file: " << filename_rswf << std::endl;
         arma::rowvec holeCell = {0., 0., 0.};
         
@@ -243,13 +261,12 @@ int main(int argc, char* argv[]){
             std::cout << "Writing state " << i + 1 << " out of " << statesToWrite.n_elem << std::endl;
             results->writeRealspaceAmplitude(statesToWrite(i), holeIndex, holeCell, textfile_rswf, ncellsRSWF);
         }
-
         fclose(textfile_rswf);
     }
 
     bool writeAbs = absorptionArg.isSet();
     if(writeAbs){
-        std::cout << "Writing absorption spectrum fo file... " << std::endl;
+        std::cout << "Writing absorption spectrum to file... " << std::endl;
         results->writeAbsorptionSpectrum();
     }
 
@@ -258,7 +275,7 @@ int main(int argc, char* argv[]){
         std::string filename_spin = output + ".spin";
         FILE* textfile_spin = fopen(filename_spin.c_str(), "w");
 
-        std::cout << "Writing excitons spin fo file: " << filename_spin << std::endl;
+        std::cout << "Writing excitons spin to file: " << filename_spin << std::endl;
         results->writeSpin(nstates, textfile_spin);
     }
 
