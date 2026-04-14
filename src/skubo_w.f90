@@ -47,6 +47,7 @@ character(100) file_name_ex
 character(100) file_name_sp_imag
 character(100) file_name_ex_imag
 character(len=:), allocatable :: file_name_strength
+logical :: do_kubo                    ! flag: do Kubo calculation only if input exists
 integer :: p_dot
 
 
@@ -74,96 +75,101 @@ vcell=sqrt(cx**2+cy**2+cz**2)
 !get printing parameters
 call get_kubo_parameters(w0,wrange,nw,eta,type_broad, &
 file_name_sp,file_name_ex)
-eta=eta/27.211385d0
 
-!SP arrays
-allocate (wp(nw))
-allocate (sigma_w_sp(3,3,nw))
-allocate (hk_ev(norb,nbands))
-allocate (e(nbands))
+!flag indicates whether we actually read parameters
+ do_kubo = (nw .gt. 0)
+ if (.not. do_kubo) then
+   write(*,*) 'Notice: kubo input missing or empty -- conductivity routines will be skipped'
+ endif
+ if (do_kubo) then
+   eta = eta/27.211385d0
+ end if
+
+! allocate the vme array unconditionally – used by the exciton routine
 allocate (vme(npointstotal,3,nbands,nbands))
-wp=0.0d0
-wn_sp=0.0d0
-sigma_w_sp=0.0d0
-do i=1,nw
-  wp(i)=(w0+wrange/dble(nw)*dble(i-1))/27.211385d0
-end do
 
-!exciton arrays
+!exciton arrays (only the part needed for oscillator strengths)
 norb_ex_band=nv_ex*nc_ex !number of electron-hole pairs per k-point
 norb_ex_cut=norb_ex  !total number of optical transitions
 allocate (vme_ex(3,norb_ex_cut,2))
-allocate (sigma_w_ex(3,3,nw))
-allocate (skubo_ex_int(3,3,norb_ex_cut))
 vme_ex=0.0d0
-sigma_w_ex=0.0d0
-skubo_ex_int=0.0d0
 
+!calculate exciton oscillator strengths regardless of Kubo input
 call exciton_oscillator_strength(nR,norb,norb_ex,nv_ex,nc_ex,nv,Rvec,R,B,hhop,shop,npointstotal,rkx, &
                                  rky,rkz,fk_ex,e_ex,eigval_stack,eigvec_stack,vme,vme_ex,.false.)
 
+if (do_kubo) then
+  ! -- arrays needed for conductivity evaluation --
+  allocate (wp(nw))
+  allocate (sigma_w_sp(3,3,nw))
+  allocate (hk_ev(norb,nbands))
+  allocate (e(nbands))
+  wp=0.0d0
+  wn_sp=0.0d0
+  sigma_w_sp=0.0d0
+  do i=1,nw
+    wp(i)=(w0+wrange/dble(nw)*dble(i-1))/27.211385d0
+  end do
 
-! Obtain SP Kubo
-do ibz=1,npointstotal
-  e(:) = eigval_stack(:, ibz)
+  allocate (sigma_w_ex(3,3,nw))
+  allocate (skubo_ex_int(3,3,norb_ex_cut))
+  sigma_w_ex=0.0d0
+  skubo_ex_int=0.0d0
 
-  !get strength for kubo SP
-  call get_kubo_intens(nv_ex,npointstotal,vcell,nbands,e,vme(ibz, :, :, :),nw,wp,sigma_w_sp,eta)
+  ! Obtain SP Kubo
+  do ibz=1,npointstotal
+    e(:) = eigval_stack(:, ibz)
+    call get_kubo_intens(nv_ex,npointstotal,vcell,nbands,e,vme(ibz, :, :, :),nw,wp,sigma_w_sp,eta)
+  end do
 
-end do
-
-
-!fill kubo oscillators of EXCITONS
-do nn=1,norb_ex_cut
-  !save oscillator stregths
-  do nj=1,3
-    do njp=1,3
-      skubo_ex_int(nj,njp,nn)=pi/(dble(npointstotal)*vcell) &
-      *conjg(vme_ex(nj,nn,1))*vme_ex(njp,nn,1)/e_ex(nn)   !pick the correct order of operators
+  !fill kubo oscillators of EXCITONS
+  do nn=1,norb_ex_cut
+    do nj=1,3
+      do njp=1,3
+        skubo_ex_int(nj,njp,nn)=pi/(dble(npointstotal)*vcell) &
+        *conjg(vme_ex(nj,nn,1))*vme_ex(njp,nn,1)/e_ex(nn)
+      end do
     end do
   end do
-end do
 
-
-!excitons
-do ialpha=1,3
-  do ialphap=1,3
-    call broad_vector(type_broad,norb_ex_cut,e_ex,skubo_ex_int(ialpha,ialphap,:), &
-    nw,wp,sigma_w_ex(ialpha,ialphap,:),eta)
+  !apply broadening to exciton contributions
+  do ialpha=1,3
+    do ialphap=1,3
+      call broad_vector(type_broad,norb_ex_cut,e_ex,skubo_ex_int(ialpha,ialphap,:), &
+      nw,wp,sigma_w_ex(ialpha,ialphap,:),eta)
+    end do
   end do
-end do
 
-!write frequency dependent conductivity
-open(50,file=file_name_sp)
-open(60,file=file_name_ex)
-do iw=1,nw
-  feps=1.0d0
-  !feps=4.0d0*pi*1.0d0/137.035999084d0*100.0d0   !absorbance units
-  !eps=4.0d0   !\sigma_0 units
-  write(50,*) wp(iw)*27.211385d0, &
-              -realpart(feps*sigma_w_sp(1,1,iw)), &
-              -realpart(feps*sigma_w_sp(1,2,iw)), &
-              -realpart(feps*sigma_w_sp(1,3,iw)), &
-              -realpart(feps*sigma_w_sp(2,1,iw)), &
-              -realpart(feps*sigma_w_sp(2,2,iw)), &
-              -realpart(feps*sigma_w_sp(2,3,iw)), &
-              -realpart(feps*sigma_w_sp(3,1,iw)), &
-              -realpart(feps*sigma_w_sp(3,2,iw)), &
-              -realpart(feps*sigma_w_sp(3,3,iw))
-  write(60,*) wp(iw)*27.211385d0, &
-              realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(1,1,iw)), &
-              realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(1,2,iw)), &
-              realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(1,3,iw)), &
-              realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(2,1,iw)), &
-              realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(2,2,iw)), &
-              realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(2,3,iw)), &
-              realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(3,1,iw)), &
-              realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(3,2,iw)), &
-              realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(3,3,iw))
-end do
+  !write frequency dependent conductivity
+  open(50,file=file_name_sp)
+  open(60,file=file_name_ex)
+  do iw=1,nw
+    feps=1.0d0
+    write(50,*) wp(iw)*27.211385d0, &
+                -realpart(feps*sigma_w_sp(1,1,iw)), &
+                -realpart(feps*sigma_w_sp(1,2,iw)), &
+                -realpart(feps*sigma_w_sp(1,3,iw)), &
+                -realpart(feps*sigma_w_sp(2,1,iw)), &
+                -realpart(feps*sigma_w_sp(2,2,iw)), &
+                -realpart(feps*sigma_w_sp(2,3,iw)), &
+                -realpart(feps*sigma_w_sp(3,1,iw)), &
+                -realpart(feps*sigma_w_sp(3,2,iw)), &
+                -realpart(feps*sigma_w_sp(3,3,iw))
+    write(60,*) wp(iw)*27.211385d0, &
+                realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(1,1,iw)), &
+                realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(1,2,iw)), &
+                realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(1,3,iw)), &
+                realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(2,1,iw)), &
+                realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(2,2,iw)), &
+                realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(2,3,iw)), &
+                realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(3,1,iw)), &
+                realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(3,2,iw)), &
+                realpart(complex(0.0d0,-1.0d0)*feps*sigma_w_ex(3,3,iw))
+  end do
+  close(50)
+  close(60)
+endif
 
-close(50)
-close(60)
 
 p_dot = scan(file_name_ex, '.', .true.)           ! find first “.” from the right
 if (p_dot == 0) then
@@ -453,8 +459,22 @@ implicit real*8 (a-h,o-z)
 character(100) type_broad
 character(100) file_name_sp
 character(100) file_name_ex
+logical :: exists_file
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! make sure the input file exists before trying to read it
+inquire(file='kubo_w.in', exist=exists_file)
+if (.not. exists_file) then
+  write(*,*) 'Warning: kubo_w.in not found, skipping Kubo conductivity'
+  nw = 0
+  w0 = 0.0d0
+  wrange = 0.0d0
+  eta = 0.0d0
+  type_broad = 'lorentzian'
+  file_name_sp = 'kubo_sp.dat'
+  file_name_ex = 'kubo_ex.dat'
+  return
+endif
 open(10,file='kubo_w.in')
 read(10,*)
 read(10,*) w0
