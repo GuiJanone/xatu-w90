@@ -208,7 +208,7 @@ end do
 close(50)
 close(60)
 
-! Oscillator stregth: append name to exciton spectra
+! Oscillator strength: append name to exciton spectra
 ! assume file_name_ex has been set, e.g. 'some_file.dat'
 p_dot = scan(file_name_ex, '.', .true.)           ! find first “.” from the right
 if (p_dot == 0) then
@@ -222,7 +222,7 @@ endif
 ! write exciton oscillator strengths to a separate file
 open(unit=70, file=file_name_strength)
 
-norb_ex_cut = nv_ex*nc_ex*npointstotal
+!norb_ex_cut = nv_ex*nc_ex*npointstotal
 do iex=1,norb_ex_cut
   write(70,*) e_ex(iex)*27.211385d0, &
                realpart(vme_ex(1,iex,1)), imagpart(vme_ex(1,iex,1)), &

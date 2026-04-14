@@ -401,39 +401,38 @@ void Result<T>::writeRealspaceAmplitude(int stateindex, int holeIndex,
  * @return void 
  */
 template <typename T>
-void Result<T>::writeEigenvalues(FILE* textfile, int n){
+void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
+    int newn = n;
+    
+    if (encut != 0.0){
+        newn = (int) arma::abs(eigval - encut).index_min() + 1;
+    }
     if (!exciton->TDA){
-        if(n > 2*exciton->excitonbasisdim || n < 0){
+        if(newn > 2*exciton->excitonbasisdim || newn < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
         }
         // first line: number of cells
         fprintf(textfile, "%d\n", 2*exciton->excitonbasisdim);
         
         // second line: how many eigenvalues will follow
-        int maxEigval = (n == 0) ? 2*exciton->excitonbasisdim : n;
+        int maxEigval = (newn == 0) ? 2*exciton->excitonbasisdim : newn;
+        int minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0; 
         fprintf(textfile, "%d\n", maxEigval);
         
         // then one eigenvalue per line
-        if (n < exciton->excitonbasisdim){
-            for(int i = exciton->excitonbasisdim; i < std::min(2*exciton->excitonbasisdim,exciton->excitonbasisdim+maxEigval); ++i){
-                fprintf(textfile, " %11.7lf\n", eigval(i));
-            }
-        }
-        else{
-            for(int i = 0; i < maxEigval; ++i){
-                fprintf(textfile, " %11.7lf\n", eigval(i));
-            }
+        for(int i = minState; i < minState+maxEigval; ++i){
+            fprintf(textfile, " %11.7lf\n", eigval(i));
         }
     }
     else{
-        if(n > exciton->excitonbasisdim || n < 0){
+        if(newn > exciton->excitonbasisdim || newn < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
         }
         // first line: number of cells
         fprintf(textfile, "%d\n", exciton->excitonbasisdim);
         
         // second line: how many eigenvalues will follow
-        int maxEigval = (n == 0) ? exciton->excitonbasisdim : n;
+        int maxEigval = (newn == 0) ? exciton->excitonbasisdim : newn;
         fprintf(textfile, "%d\n", maxEigval);
         
         // then one eigenvalue per line
@@ -450,9 +449,14 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n){
  * @return void
  */
 template <typename T>
-void Result<T>::writeStates(FILE* textfile, int n){
+void Result<T>::writeStates(FILE* textfile, int n, double encut){
+    int newn = n;
+    
+    if (encut != 0.0){
+        newn = (int) arma::abs(eigval - encut).index_min() + 1;
+    }
     if (!exciton->TDA){
-        if(n > 2*exciton->excitonbasisdim || n < 0){
+        if(newn > 2*exciton->excitonbasisdim || newn < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
         }
         // First write basis
@@ -466,8 +470,8 @@ void Result<T>::writeStates(FILE* textfile, int n){
                     kpoint(0), kpoint(1), kpoint(2), v, c);
         }
         
-        int nstates = (n == 0) ?  2*exciton->excitonbasisdim : n;
-        int minState = (n < exciton->excitonbasisdim && n != 0) ? exciton->excitonbasisdim : 0; 
+        int nstates = (newn == 0) ?  2*exciton->excitonbasisdim : newn;
+        int minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0; 
         
         for(unsigned int i = minState; i < minState + nstates; i++){
             for(unsigned int j = 0; j <  2*exciton->excitonbasisdim; j++){
@@ -478,7 +482,7 @@ void Result<T>::writeStates(FILE* textfile, int n){
         }
     }
     else{
-        if(n > exciton->excitonbasisdim || n < 0){
+        if(newn > exciton->excitonbasisdim || newn < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
         }
         // First write basis
@@ -492,7 +496,7 @@ void Result<T>::writeStates(FILE* textfile, int n){
                     kpoint(0), kpoint(1), kpoint(2), v, c);
         }
         
-        int nstates = (n == 0) ? exciton->excitonbasisdim : n;  
+        int nstates = (newn == 0) ? exciton->excitonbasisdim : newn;  
         for(unsigned int i = 0; i < nstates; i++){
             for(unsigned int j = 0; j < exciton->excitonbasisdim; j++){
                 fprintf(textfile, "%11.7lf\t%11.7lf\t", 
@@ -510,14 +514,18 @@ void Result<T>::writeStates(FILE* textfile, int n){
  * @param textfile Textfile where the spins are written.
  */
 template <typename T>
-void Result<T>::writeSpin(int n, FILE* textfile){
-
+void Result<T>::writeSpin(int n, double encut, FILE* textfile){
+    int newn = n;
+    
+    if (encut != 0.0){
+        newn = (int) arma::abs(eigval - encut).index_min() + 1;
+    }
     if (!exciton->TDA){
-        if(n > 2*exciton->excitonbasisdim || n < 0){
+        if(newn > 2*exciton->excitonbasisdim || newn < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
         }
-        int maxState = (n == 0) ? 2*exciton->excitonbasisdim : n;  
-        int minState = (n < exciton->excitonbasisdim) ? exciton->excitonbasisdim : 0; 
+        int maxState = (newn == 0) ? 2*exciton->excitonbasisdim : newn;  
+        int minState = (newn < exciton->excitonbasisdim) ? exciton->excitonbasisdim : 0; 
         fprintf(textfile, "n\tSt\tSe\tSh\n");
         for(unsigned int i = minState; i < minState+maxState; i++){
             auto spin = spinX(i);
@@ -525,10 +533,10 @@ void Result<T>::writeSpin(int n, FILE* textfile){
         }
     }
     else{
-        if(n > exciton->excitonbasisdim || n < 0){
+        if(newn > exciton->excitonbasisdim || newn < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
         }
-        int maxState = (n == 0) ? exciton->excitonbasisdim : n;  
+        int maxState = (newn == 0) ? exciton->excitonbasisdim : newn;  
         fprintf(textfile, "n\tSt\tSe\tSh\n");
         for(unsigned int i = 0; i < maxState; i++){
             auto spin = spinX(i);

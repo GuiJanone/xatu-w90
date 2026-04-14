@@ -22,6 +22,7 @@ int main(int argc, char* argv[]){
     TCLAP::CmdLine cmd("Command line interface options of the Xatu binary. For a more detailed description, refer to the user guide or the API documentation.", ' ', "1.0");
 
     TCLAP::ValueArg<int>    statesArg("n", "states", "Specify number of exciton states to show.", false, 8, "No. states", cmd);
+        TCLAP::ValueArg<double> energycutoff("t", "encut", "Specify up to high energy to print excitons (eV).", false, 0.0, "En cutoff", cmd);
     TCLAP::ValueArg<int>    precisionArg("p", "precision", "Desired energy precision. Used to compute degeneracies.", false, 6, "No. decimals", cmd);
     TCLAP::SwitchArg        spinArg("s", "spin", "Compute exciton spin and write it to file.", cmd, false);
     TCLAP::ValueArg<int>    dftArg("d", "dft", "Indicates that the system file is a .outp CRYSTAL file.", false, -1, "No. Fock matrices", cmd);
@@ -51,6 +52,7 @@ int main(int argc, char* argv[]){
 
     // Extract information from parsed CLI options
     int nstates        = statesArg.getValue();
+    double encut       = energycutoff.getValue();
     int ncells         = dftArg.getValue();
     int electronNum    = w90Arg.getValue();
     int decimals       = precisionArg.getValue();
@@ -158,15 +160,15 @@ int main(int argc, char* argv[]){
         }
         else{
             if (nstates < bulkExciton.excitonbasisdim){
-                xatu::printEnergies(results, bulkExciton.excitonbasisdim + nstates, decimals);
+                xatu::printEnergies(results, bulkExciton.excitonbasisdim + nstates, encut, decimals);
             }
             else{
-                 xatu::printEnergies(results, nstates, decimals);
+                 xatu::printEnergies(results, nstates, encut, decimals);
             }
         }
     }
     else if (excitonConfig->excitonInfo.tammdancoff){
-        xatu::printEnergies(results, nstates, decimals);
+        xatu::printEnergies(results, nstates, encut, decimals);
     }
 
 
@@ -184,7 +186,7 @@ int main(int argc, char* argv[]){
 
         std::cout << "Writing eigvals to file: " << filename_en << std::endl;
         fprintf(textfile_en, "%d\n", excitonConfig->excitonInfo.ncell);
-        results->writeEigenvalues(textfile_en, nstates);
+        results->writeEigenvalues(textfile_en, nstates, encut);
 
         fclose(textfile_en);
     }
@@ -207,7 +209,7 @@ int main(int argc, char* argv[]){
         FILE* textfile_st = fopen(filename_st.c_str(), "w");
 
         std::cout << "Writing states to file: " << filename_st << std::endl;
-        results->writeStates(textfile_st, nstates);
+        results->writeStates(textfile_st, nstates, encut);
 
         fclose(textfile_st);
     }
@@ -218,8 +220,9 @@ int main(int argc, char* argv[]){
         FILE* textfile_kwf = fopen(filename_kwf.c_str(), "w");
 
         std::cout << "Writing k w.f. to file: " << filename_kwf << std::endl;
-        if ((!bulkExciton.TDA) && (nstates < bulkExciton.excitonbasisdim)){
-            for(int stateindex = bulkExciton.excitonbasisdim; stateindex < bulkExciton.excitonbasisdim+nstates; stateindex++){
+        if (!bulkExciton.TDA){
+            int nstart = (nstates < bulkExciton.excitonbasisdim) ? bulkExciton.excitonbasisdim : 0;
+            for(int stateindex = nstart; stateindex < nstart + nstates; stateindex++){
                 if (excitonConfig->excitonInfo.submeshFactor != 1){
                     results->writeReciprocalAmplitude(stateindex, textfile_kwf);
                 }
@@ -276,7 +279,7 @@ int main(int argc, char* argv[]){
         FILE* textfile_spin = fopen(filename_spin.c_str(), "w");
 
         std::cout << "Writing excitons spin to file: " << filename_spin << std::endl;
-        results->writeSpin(nstates, textfile_spin);
+        results->writeSpin(nstates, encut, textfile_spin);
     }
 
     auto stop = high_resolution_clock::now();

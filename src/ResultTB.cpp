@@ -238,7 +238,7 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
 
     int nR = system->unitCellList.n_rows;
     int norb = system->basisdim;
-    int norb_ex = 2*exciton->excitonbasisdim;
+    int norb_ex = (exciton->TDA) ? exciton->excitonbasisdim : 2*exciton->excitonbasisdim;
     int filling = system->filling;
     int nv = exciton->valenceBands.n_elem;
     int nc = exciton->conductionBands.n_elem;
@@ -445,7 +445,7 @@ void ResultTB::writeAbsorptionSpectrum(){
 
     int nR = system->unitCellList.n_rows;
     int norb = system->basisdim;
-    int norb_ex = exciton->excitonbasisdim;
+    int norb_ex = (exciton->TDA) ? exciton->excitonbasisdim : 2*exciton->excitonbasisdim;
     int filling = system->filling;
     int nv = exciton->valenceBands.n_elem;
     int nc = exciton->conductionBands.n_elem;
