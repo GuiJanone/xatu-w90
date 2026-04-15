@@ -77,7 +77,15 @@ void ExcitonConfiguration::parseContent(){
         }
         else if(arg == "dielectric"){
             std::vector<double> eps = parseLine<double>(content[0]);
-            excitonInfo.eps = arma::vec(eps);
+            if ( eps.size() == 3){
+                excitonInfo.eps = arma::join_cols( arma::vec(eps), arma::vec({eps[2],eps[2]}) ) ;
+            }
+            if ( eps.size() == 4){
+                excitonInfo.eps = arma::join_cols( arma::vec(eps), arma::vec( {0.5 * ( eps[2] + eps[3] )} )  );
+            }
+            if ( eps.size() == 5){
+                excitonInfo.eps = arma::vec(eps);
+            }
         }
         else if(arg == "reciprocal"){
             excitonInfo.mode = "reciprocalspace";
@@ -190,7 +198,7 @@ void ExcitonConfiguration::checkContentCoherence(){
     if (excitonInfo.potential == "hubbard" && excitonInfo.mode != "realspace"){
         throw std::invalid_argument("Specified 'hubbard' potential only implemented for interactions in real space");
     }
-    if (excitonInfo.hubbardU.n_elem >= 2){
+    if (excitonInfo.hubbardU.n_elem >= 4){
         throw std::logic_error("Hubbard interaction strength U has too many elements");
     }
     if (excitonInfo.exchange && !exchangePotentialFound){

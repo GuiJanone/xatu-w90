@@ -23,32 +23,45 @@ void ExcitonTB::initializeExcitonAttributes(int ncell, const arma::ivec& bands,
     this->totalCells_ = pow(ncell, system_->ndim);
     this->Q_          = Q;
     this->bands_      = bands;
-    this->eps_m_      = parameters(0);
-    this->eps_s_      = parameters(1);
-    this->r0_         = parameters(2);
-    // Set ry
-    if (parameters.n_elem >= 4) {
-        this->ry_       = parameters(3);
-        this->hubbardU_ = parameters(3);
-    } else {
-        this->ry_ = r0_;
-        this->hubbardU_ = r0_;
+    // if there are <= than 3 elements, it's hubbard
+    if (parameters.n_elem  >= 1) {
+        this->hubbardU_    = parameters(0);
+        this->hubbardU1_   = 0.0;
+        this->hubbarddist_ = 0.0;
     }
-
-    // Set rz
-    if (parameters.n_elem >= 5) {
-        this->rz_       = parameters(4);
-        this->hubbardU_ = parameters(4);
-    } else {
-        this->rz_ = 0.5 * (this->r0_ + this->ry_);
+    if (parameters.n_elem  >= 2) {
+        this->hubbardU1_   = parameters(0);
+        this->hubbarddist_ = parameters(1);
     }
-    // hubbardU always set as last element of parameters vector
-    if (parameters.n_elem >= 6) {
-        this->hubbardU_ = parameters(5); 
+    if (parameters.n_elem  >= 3) {
+        this->hubbardU1_   = parameters(1);
+        this->hubbarddist_ = parameters(2);
+    }
+    // if there are 5 elements, it's keldysh'
+    if (parameters.n_elem  >= 5) {
+        this->eps_m_       = parameters(0);
+        this->eps_s_       = parameters(1);
+        this->r0_          = parameters(2);
+        this->ry_          = parameters(3);
+        this->rz_          = parameters(4);
+    } 
+    // if there are more than 5 elements, it's both (not tested)
+    if (parameters.n_elem  >= 6) {
+        this->hubbardU_    = parameters(5);
+        this->hubbardU1_   = parameters(5);
+        this->hubbarddist_ = 0.0; 
+    }
+    if (parameters.n_elem  >= 7) {
+        this->hubbardU1_   = parameters(5);
+        this->hubbarddist_ = parameters(6); 
+    }
+    if (parameters.n_elem  >= 8) {
+        this->hubbardU1_   = parameters(6);
+        this->hubbarddist_ = parameters(7); 
     }
     this->cutoff_     = ncell/2.5; // Default value, seems to preserve crystal point group
 
-    if(r0 == 0){
+    if((parameters.n_elem > 3) && (r0 == 0)){
         throw std::invalid_argument("Error: r0 must be non-zero");
     }
 
@@ -446,8 +459,11 @@ double ExcitonTB::coulomb(arma::rowvec r){
 
 double ExcitonTB::hubbard(arma::rowvec r){
     double R = abs(arma::norm(r));
-    if (R > 0.0){
+    if (R > hubbarddist){
         return 0.0;
+    }
+    if ((R > 0.0) && (R <= hubbarddist)){
+        return hubbardU1;
     }
     return hubbardU;
 }
@@ -987,10 +1003,11 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
     std::cout << "BSE dimension: " << basisDimBSE << std::endl;
     std::cout << "Initializing Bethe-Salpeter matrix... " << std::flush;
 
-    HBS_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
-    if(!this->tammdancoff_){
-        HBS_ = arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE);
-    }
+    HBS_ = (!this->tammdancoff_) ? arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE) : arma::zeros<cx_mat>(basisDimBSE, basisDimBSE); 
+    // HBS_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
+    // if(!this->tammdancoff_){
+    //     HBS_ = arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE);
+    // }
     HBSres_  = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
     HBScoup_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
     HBSares_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
