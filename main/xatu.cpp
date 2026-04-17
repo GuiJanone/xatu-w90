@@ -22,7 +22,7 @@ int main(int argc, char* argv[]){
     TCLAP::CmdLine cmd("Command line interface options of the Xatu binary. For a more detailed description, refer to the user guide or the API documentation.", ' ', "1.0");
 
     TCLAP::ValueArg<int>    statesArg("n", "states", "Specify number of exciton states to show.", false, 8, "No. states", cmd);
-    TCLAP::ValueArg<double> energycutoff("t", "encut", "Specify up to high energy to print excitons (eV).", false, 0.0, "En cutoff", cmd);
+    TCLAP::ValueArg<double> energycutoff("t", "ecut", "Specify up to high energy to print excitons (eV).", false, 0.0, "En cutoff", cmd);
     TCLAP::ValueArg<int>    precisionArg("p", "precision", "Desired energy precision. Used to compute degeneracies.", false, 6, "No. decimals", cmd);
     TCLAP::SwitchArg        spinArg("s", "spin", "Compute exciton spin and write it to file.", cmd, false);
     TCLAP::ValueArg<int>    dftArg("d", "dft", "Indicates that the system file is a .outp CRYSTAL file.", false, -1, "No. Fock matrices", cmd);
