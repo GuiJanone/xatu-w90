@@ -1081,11 +1081,13 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                 coefsK2sw = eigvecKStack.slice(k2_index).col(c2);
                 coefsK2Qsw = eigvecKQStack.slice(k2Q_index).col(v2);
                     
-                Dcoup = realSpaceInteractionTerm(coefsKQ, coefsK2sw, coefsK2Qsw, coefsK, motifFT);
+                Dcoup = realSpaceInteractionTerm(coefsK, coefsK2Qsw, coefsK2sw, coefsKQ, motifFT);
+                // Dcoup = realSpaceInteractionTerm(coefsKQ, coefsK2sw, coefsK2Qsw, coefsK, motifFT);
                 // Dares = realSpaceInteractionTerm(coefsKsw, coefsK2Qsw, coefsK2sw, coefsKQsw, motifFT);
                 Dares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsK2Qsw, coefsKsw, motifFT);
                 if(this->exchange){
-                    Xcoup = realSpaceInteractionTerm(coefsKQ, coefsK2sw, coefsK, coefsK2Qsw, this->ftMotifQ);
+                    Xcoup = realSpaceInteractionTerm(coefsK, coefsK2Qsw, coefsKQ, coefsK2sw, this->ftMotifQ);
+                    // Xcoup = realSpaceInteractionTerm(coefsKQ, coefsK2sw, coefsK, coefsK2Qsw, this->ftMotifQ);
                     // Xares = realSpaceInteractionTerm(coefsKsw, coefsK2Qsw, coefsKQsw, coefsK2sw, this->ftMotifQ);
                     Xares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsKsw, coefsK2Qsw, this->ftMotifQ);
                 }
@@ -1110,7 +1112,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                 
                 HBScoup_(i, j) = - (Dcoup - Xcoup)/2.;
                 
-                HBSares_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(v) /*+ selfcond*/) - (eigvalKStack.col(k_index)(c)/* + selfval*/))/2.
+                HBSares_(i, j) = (- this->scissor + (eigvalKQStack.col(kQ_index)(v) /*+ selfcond*/) - (eigvalKStack.col(k_index)(c)/* + selfval*/))/2.
                 - (Dares - Xares)/2.;
             }
             else if(this->tammdancoff_){
@@ -1121,7 +1123,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         else{
             if(!this->tammdancoff_){
                 HBSres_(i, j)  = - (D - X);
-                // HBScoup_(i, j) =   (Dcoup + Xcoup); //this expression is wrong, according to PRB.92.045209
+                // HBScoup_(i, j) =   (Dcoup + Xcoup); //this expression is wrong, according to PRB.92.045209 + others
                 HBScoup_(i, j) = - (Dcoup - Xcoup);
                 HBSares_(i, j) = - (Dares - Xares);
             }
@@ -1134,7 +1136,8 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         HBSres_  = HBSres_  + HBSres_.t();
         HBScoup_ = HBScoup_ + HBScoup_.t();
         HBSares_ = HBSares_ + HBSares_.t();
-        HBS_ = join_rows( join_cols( HBSres_, (HBScoup_.t()) ), join_cols( HBScoup_, HBSares_ ));
+        //HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, -(HBSres_.t()) ) );
+        HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, HBSares_ ) );
     }
     else if(this->tammdancoff_){
         HBS_ = HBS + HBS.t();
