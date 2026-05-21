@@ -159,12 +159,13 @@ int main(int argc, char* argv[]){
             xatu::printEnergies(results, 0, decimals);
         }
         else{
-            if (nstates < bulkExciton.excitonbasisdim){
-                xatu::printEnergies(results, bulkExciton.excitonbasisdim + nstates, encut, decimals);
-            }
-            else{
-                 xatu::printEnergies(results, nstates, encut, decimals);
-            }
+            // if (nstates < bulkExciton.excitonbasisdim){
+            //     xatu::printEnergies(results, bulkExciton.excitonbasisdim + nstates, encut, decimals);
+            // }
+            // else{
+            //      xatu::printEnergies(results, nstates, encut, decimals);
+            // }
+            xatu::printEnergies(results, nstates, encut, decimals);
         }
     }
     else if (excitonConfig->excitonInfo.tammdancoff){
@@ -221,7 +222,8 @@ int main(int argc, char* argv[]){
 
         std::cout << "Writing k w.f. to file: " << filename_kwf << std::endl;
         if (!bulkExciton.TDA){
-            int nstart = (nstates < bulkExciton.excitonbasisdim) ? bulkExciton.excitonbasisdim : 0;
+            //int nstart = (nstates < bulkExciton.excitonbasisdim) ? bulkExciton.excitonbasisdim : 0;
+            int nstart = 0;
             for(int stateindex = nstart; stateindex < nstart + nstates; stateindex++){
                 if (excitonConfig->excitonInfo.submeshFactor != 1){
                     results->writeReciprocalAmplitude(stateindex, textfile_kwf);
