@@ -401,7 +401,7 @@ void Result<T>::writeRealspaceAmplitude(int stateindex, int holeIndex,
  * @return void 
  */
 template <typename T>
-void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut)
+void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
     int newn = n;
     
     if (encut != 0.0){
