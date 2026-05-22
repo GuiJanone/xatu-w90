@@ -1007,7 +1007,7 @@ std::complex<double> ExcitonTB::selfenergyTerm(bool Qtoggle, uint32_t k_index, u
  * @return void
  */
 void ExcitonTB::BShamiltonian(const arma::imat& basis){
-
+    
     arma::imat basisStates = this->basisStates;
     if (!basis.is_empty()){
         basisStates = basis;
@@ -1015,36 +1015,35 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
     uint64_t basisDimBSE = basisStates.n_rows;
     std::cout << "BSE dimension: " << basisDimBSE << std::endl;
     std::cout << "Initializing Bethe-Salpeter matrix... " << std::flush;
-
+    
     HBS_ = (!this->tammdancoff_) ? arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE) : arma::zeros<cx_mat>(basisDimBSE, basisDimBSE); 
-    // HBS_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
-    // if(!this->tammdancoff_){
-    //     HBS_ = arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE);
-    // }
-    HBSres_  = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
-    HBScoup_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
-    HBSares_ = arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
+
+    //set blocks as 1x1 matrices for memory saving if tammdancoff approximation is being used
+    HBSres_  = (!this->tammdancoff_) ? arma::zeros<cx_mat>(basisDimBSE, basisDimBSE) : arma::zeros<cx_mat>(1, 1); 
+    HBScoup_ = (!this->tammdancoff_) ? arma::zeros<cx_mat>(basisDimBSE, basisDimBSE) : arma::zeros<cx_mat>(1, 1); 
+    
+    
     
     // To be able to parallelize over the triangular matrix, we build
     uint64_t loopLength = basisDimBSE*(basisDimBSE + 1)/2.;
-
+    
     // https://stackoverflow.com/questions/242711/algorithm-for-index-numbers-of-triangular-matrix-coefficients
     #pragma omp parallel for
     for(uint64_t n = 0; n < loopLength; n++){
-
+        
         arma::cx_vec coefsK, coefsK2, coefsKQ, coefsK2Q;
         arma::cx_vec coefsKsw, coefsK2sw, coefsKQsw, coefsK2Qsw;
-
+        
         uint64_t ii = loopLength - 1 - n;
         uint64_t m  = floor((sqrt(8*ii + 1) - 1)/2);
         uint64_t i = basisDimBSE - 1 - m;
         uint64_t j = basisDimBSE - 1 - ii + m*(m+1)/2;
-    
+        
         uint32_t k_index = basisStates(i, 2);
         int v = bandToIndex[basisStates(i, 0)];
         int c = bandToIndex[basisStates(i, 1)];
         uint32_t kQ_index = k_index;
-
+        
         uint32_t k2_index = basisStates(j, 2);
         int v2 = bandToIndex[basisStates(j, 0)];
         int c2 = bandToIndex[basisStates(j, 1)];
@@ -1062,7 +1061,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
             coefsK2 = eigvecKStack.slice(k2_index).col(v2);
             coefsK2Q = eigvecKQStack.slice(k2Q_index).col(c2);
         }
-
+        
         std::complex<double> D, X, selfcond, selfval = 0.0;
         std::complex<double> Dcoup, Dares, Xcoup, Xares = 0.0;
         if (mode == "realspace"){
@@ -1093,16 +1092,13 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                 coefsKQsw = eigvecKQStack.slice(kQ_index).col(v);
                 coefsK2sw = eigvecKStack.slice(k2_index).col(c2);
                 coefsK2Qsw = eigvecKQStack.slice(k2Q_index).col(v2);
-                    
+                
                 Dcoup = realSpaceInteractionTerm(coefsK, coefsK2Qsw, coefsK2sw, coefsKQ, motifFT);
                 // Dares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsK2Qsw, coefsKsw, motifFT);
                 if(this->exchange){
                     Xcoup = realSpaceInteractionTerm(coefsK, coefsK2Qsw, coefsKQ, coefsK2sw, this->ftMotifQ);
                     // Xares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsKsw, coefsK2Qsw, this->ftMotifQ);
-                }
-                //std::cout << "Dcoup" << Dcoup << std::endl; debugging test
-                //std::cout << "Xcoup" << Xcoup << std::endl;
-                
+                }                
             }
         }
         else if (mode == "reciprocalspace"){
@@ -1145,8 +1141,16 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         HBSres_  = HBSres_  + HBSres_.t();
         HBScoup_ = HBScoup_ + HBScoup_.t();
         //HBSares_ = HBSares_ + HBSares_.t();
-        HBS_ = join_rows( join_cols( HBSres_, (HBScoup_.t().st()) ), join_cols( HBScoup_, (HBSres_.t()) ) );
-        //HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, HBSares_ ) );
+        
+        /*
+         *      We don't explicitly compute the antiresonat block nor the antires-res block as
+         *      HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, HBSares_ ) );
+         *      instead we use the explicit properties of the BSE matrix to construct them from the other two
+         *      10.1103/PhysRevB.92.045209   
+         */
+        HBS_ = join_rows( join_cols( HBSres_, HBScoup_.t().st() ), join_cols( HBScoup_, HBSres_.t() ) );
+        
+        
     }
     else if(this->tammdancoff_){
         HBS_ = HBS + HBS.t();
