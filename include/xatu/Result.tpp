@@ -408,7 +408,7 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
         newn = (int) arma::abs(eigval - encut).index_min() + 1;
     }
     if (!exciton->TDA){
-        if(newn > exciton->excitonbasisdim || newn < 0){
+        if(newn > 2*exciton->excitonbasisdim || newn < 0){
             throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
         }
         // first line: number of cells
