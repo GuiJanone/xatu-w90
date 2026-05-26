@@ -409,7 +409,12 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
     }
     if (!exciton->TDA){
         if(newn > 2*exciton->excitonbasisdim || newn < 0){
-            throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
+            if (encut != 0.0){
+                newn = 2*exciton->excitonbasisdim;
+            }
+            else{
+                throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
+            }
         }
         // first line: number of cells
         fprintf(textfile, "%d\n", 2*exciton->excitonbasisdim);
@@ -427,7 +432,12 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
     }
     else{
         if(newn > exciton->excitonbasisdim || newn < 0){
-            throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+            if (encut != 0.0){
+                newn = exciton->excitonbasisdim;
+            }
+            else{
+                throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+            }
         }
         // first line: number of cells
         fprintf(textfile, "%d\n", exciton->excitonbasisdim);
@@ -458,7 +468,12 @@ void Result<T>::writeStates(FILE* textfile, int n, double encut){
     }
     if (!exciton->TDA){
         if(newn > 2*exciton->excitonbasisdim || newn < 0){
-            throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
+            if (encut != 0.0){
+                newn = 2*exciton->excitonbasisdim;
+            }
+            else{
+                throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
+            }
         }
         // First write basis
         fprintf(textfile, "%d\n", exciton->excitonbasisdim);
@@ -485,7 +500,12 @@ void Result<T>::writeStates(FILE* textfile, int n, double encut){
     }
     else{
         if(newn > exciton->excitonbasisdim || newn < 0){
-            throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+            if (encut != 0.0){
+                newn = exciton->excitonbasisdim;
+            }
+            else{
+                throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+            }
         }
         // First write basis
         fprintf(textfile, "%d\n", exciton->excitonbasisdim);
@@ -524,7 +544,12 @@ void Result<T>::writeSpin(int n, double encut, FILE* textfile){
     }
     if (!exciton->TDA){
         if(newn > 2*exciton->excitonbasisdim || newn < 0){
-            throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
+            if (encut != 0.0){
+                newn = 2*exciton->excitonbasisdim;
+            }
+            else{
+                throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
+            }
         }
         int maxState = (newn == 0) ? 2*exciton->excitonbasisdim : newn;  
         //int minState = (newn < exciton->excitonbasisdim) ? exciton->excitonbasisdim : 0; 
@@ -537,7 +562,12 @@ void Result<T>::writeSpin(int n, double encut, FILE* textfile){
     }
     else{
         if(newn > exciton->excitonbasisdim || newn < 0){
-            throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+            if (encut != 0.0){
+                newn = exciton->excitonbasisdim;
+            }
+            else{
+                throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
+            }
         }
         int maxState = (newn == 0) ? exciton->excitonbasisdim : newn;  
         fprintf(textfile, "n\tSt\tSe\tSh\n");
