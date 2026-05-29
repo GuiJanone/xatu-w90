@@ -1148,8 +1148,8 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
          *      instead we use the explicit properties of the BSE matrix to construct them from the other two
          *      10.1103/PhysRevB.92.045209   
          */
-        HBS_ = join_rows( join_cols( HBSres_, HBScoup_.t().st() ), join_cols( HBScoup_, HBSres_.t() ) );
-        
+        HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, -(HBSres_.t()) ) );
+        //std::cout << join_rows( join_cols( arma::mat{{1,1},{1,1}}, arma::mat{{2,2},{2,2}} ), join_cols( arma::mat{{3,3},{3,3}}, arma::mat{{4,4},{4,4}} ) )<< std::endl;
         
     }
     else if(this->tammdancoff_){
@@ -1205,15 +1205,39 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     arma::vec eigval;
     arma::cx_mat eigvec;
 
+    int64_t basisDimBSE = this->basisStates.n_rows;
+    
+    // arma::mat sz;
+    // arma::cx_mat iden;
+    // arma::cx_mat geneig;
+    // iden = arma::eye<cx_mat>(basisDimBSE, basisDimBSE);
+    // sz = arma::mat{{1,0},{0,-1}};
+    // geneig = kron(sz,iden);
+    
     if (method == "diag"){
         std::cout << "exact diagonalization... " << std::flush;
-       // if(!this->tammdancoff_){
-        //    arma::cx_vec cx_eigval;
-       //     arma::eig_gen(cx_eigval, eigvec, HBS, "balance");
-        //}
-        //else if(this->tammdancoff_){
+        if(!this->tammdancoff_){
+           arma::cx_vec cx_eigval;
+           arma::uvec sorted_indices;
+           
+           std::cout << "" << std::endl;
+           std::cout << "beginning generalized diagonalization" << std::endl;
+           
+           arma::eig_gen(cx_eigval, eigvec, HBS);
+           eigval = arma::real(cx_eigval);
+           
+           
+           std::cout << "diagonalization done " << std::endl;
+           sorted_indices = arma::sort_index(eigval, "ascend");
+           
+           eigval = eigval(sorted_indices);
+           eigvec = eigvec.cols(sorted_indices);
+           
+           // std::cout << "Eigval order " << sorted_indices << std::flush;
+        }
+        else if(this->tammdancoff_){
             arma::eig_sym(eigval, eigvec, HBS);
-        //}
+        }
     }
     else if (method == "davidson"){
         std::cout << "Davidson method... " << std::flush;

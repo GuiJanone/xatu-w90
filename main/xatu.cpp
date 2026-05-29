@@ -159,13 +159,13 @@ int main(int argc, char* argv[]){
             xatu::printEnergies(results, 0, decimals);
         }
         else{
-            // if (nstates < bulkExciton.excitonbasisdim){
-            //     xatu::printEnergies(results, bulkExciton.excitonbasisdim + nstates, encut, decimals);
-            // }
-            // else{
-            //      xatu::printEnergies(results, nstates, encut, decimals);
-            // }
-            xatu::printEnergies(results, nstates, encut, decimals);
+            if (nstates < bulkExciton.excitonbasisdim){
+                xatu::printEnergies(results, bulkExciton.excitonbasisdim + nstates, encut, decimals);
+            }
+            else{
+                 xatu::printEnergies(results, nstates, encut, decimals);
+            }
+            // xatu::printEnergies(results, nstates, encut, decimals);
         }
     }
     else if (excitonConfig->excitonInfo.tammdancoff){
@@ -221,9 +221,16 @@ int main(int argc, char* argv[]){
         FILE* textfile_kwf = fopen(filename_kwf.c_str(), "w");
 
         std::cout << "Writing k w.f. to file: " << filename_kwf << std::endl;
-        if (!bulkExciton.TDA){
-            //int nstart = (nstates < bulkExciton.excitonbasisdim) ? bulkExciton.excitonbasisdim : 0;
-            int nstart = 0;
+//         int newn = n;
+//         
+//         if (encut != 0.0){
+//             newn = (int) arma::abs(eigval - encut).index_min() + 1;
+//         }
+        if (!excitonConfig->excitonInfo.tammdancoff){
+            int nstart = (nstates < bulkExciton.excitonbasisdim) ? bulkExciton.excitonbasisdim : 0;
+            std::cout << nstart << std::endl;
+            std::cout << nstates << std::endl;
+            // int nstart = 0;
             for(int stateindex = nstart; stateindex < nstart + nstates; stateindex++){
                 if (excitonConfig->excitonInfo.submeshFactor != 1){
                     results->writeReciprocalAmplitude(stateindex, textfile_kwf);
@@ -253,7 +260,7 @@ int main(int argc, char* argv[]){
         FILE* textfile_rswf = fopen(filename_rswf.c_str(), "w");
         arma::uvec statesToWrite = arma::regspace<arma::uvec>(0, nstates - 1);
         std::cout << statesToWrite << std::endl;
-        if (!bulkExciton.TDA){
+        if (!excitonConfig->excitonInfo.tammdancoff){
             if (nstates < bulkExciton.excitonbasisdim){
                 statesToWrite = arma::regspace<arma::uvec>(bulkExciton.excitonbasisdim, bulkExciton.excitonbasisdim + nstates - 1);
                 std::cout << statesToWrite << std::endl;
