@@ -75,18 +75,18 @@ eigval_stack=eigval_stack/27.211385d0
 
 if ( (NORM2(rkx) == 0 .and. NORM2(rky) == 0) .or. (NORM2(rky) == 0 .and. NORM2(rkz) == 0) .or. (NORM2(rkx) == 0 .and. NORM2(rkz) == 0) ) then
   vcell=sqrt(R(1,1)**2+R(1,2)**2+R(1,3)**2+R(2,1)**2+R(2,2)**2+R(2,3)**2+R(3,1)**2+R(3,2)**2+R(3,3)**2)
-  write(*,*) "1D system"
-  write(*,*)
+!   write(*,*) "1D system"
+!   write(*,*)
 else if ( ( NORM2(rkz) == 0 .xor. NORM2(rky) == 0) .or. (NORM2(rkx) == 0 .xor. NORM2(rky) == 0) ) then
   call crossproduct(R(1,1),R(1,2),R(1,3),R(2,1),R(2,2),R(2,3),cx,cy,cz)
   vcell=sqrt(cx**2+cy**2+cz**2)
-  write(*,*) "2D system"
-  write(*,*)
+!   write(*,*) "2D system"
+!   write(*,*)
 else 
   call crossproduct(R(1,1),R(1,2),R(1,3),R(2,1),R(2,2),R(2,3),cx,cy,cz)
   vcell=sqrt(R(3,1)*cx+R(3,2)*cy+R(3,3)*cz)
-  write(*,*) "3D system"
-  write(*,*)
+!   write(*,*) "3D system"
+!   write(*,*)
 endif
 
 !call fill_nRvec(nR,R,Rvec,nRvec)
