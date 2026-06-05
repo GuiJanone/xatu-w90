@@ -89,7 +89,7 @@ else if ( ( NORM2(rkz) == 0 .xor. NORM2(rky) == 0) .or. &
   vcell=sqrt(cx**2+cy**2+cz**2)
 else 
   call crossproduct(R(1,1),R(1,2),R(1,3),R(2,1),R(2,2),R(2,3),cx,cy,cz)
-  vcell=sqrt(R(3,1)*cx+R(3,2)*cy+R(3,3)*cz)
+  vcell=abs(R(3,1)*cx+R(3,2)*cy+R(3,3)*cz)
 endif
 
 !call fill_nRvec(nR,R,Rvec,nRvec)
