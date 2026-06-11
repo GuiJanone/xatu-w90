@@ -95,33 +95,33 @@ void System::setSystemName(std::string name){
  * @param kpointsfile File with the kpoints where we want to obtain the bands.
  * @param triangular To specify if the Hamiltonian is triangular.
 */
-void System::solveBands(std::string kpointsfile) const {
-	std::ifstream inputfile;
-	std::string line;
-	double kx, ky, kz;
-	arma::vec eigval;
-	arma::cx_mat eigvec;
-	std::string outputfilename = kpointsfile + ".bands";
-	FILE* bandfile = fopen(outputfilename.c_str(), "w");
-	try{
-		inputfile.open(kpointsfile.c_str());
-		while(std::getline(inputfile, line)){
-			std::istringstream iss(line);
-			iss >> kx >> ky >> kz;
-			arma::rowvec kpoint{kx, ky, kz};
-			solveBands(kpoint, eigval, eigvec);
-			for (int i = 0; i < eigval.n_elem; i++){
-				fprintf(bandfile, "%12.6f\t", eigval(i));
-			}
-			fprintf(bandfile, "\n");
-		}
-	}
-	catch(const std::exception& e){
-		std::cerr << e.what() << std::endl;
-	}
-	fclose(bandfile);
-	arma::cout << "Done" << arma::endl;
-}
+// void System::solveBands(std::string kpointsfile) const {
+// 	std::ifstream inputfile;
+// 	std::string line;
+// 	double kx, ky, kz;
+// 	arma::vec eigval;
+// 	arma::cx_mat eigvec;
+// 	std::string outputfilename = kpointsfile + ".bands";
+// 	FILE* bandfile = fopen(outputfilename.c_str(), "w");
+// 	try {
+// 		inputfile.open(kpointsfile.c_str());
+// 		while (std::getline(inputfile, line)) {
+// 			std::istringstream iss(line);
+// 			iss >> kx >> ky >> kz;
+// 			arma::rowvec kpoint{kx, ky, kz};
+// 			solveBands(kpoint, eigval, eigvec);
+// 			for (int i = 0; i < (int)eigval.n_elem; i++){
+// 				fprintf(bandfile, "%12.6f\t", eigval(i));
+// 			}
+// 			fprintf(bandfile, "\n");
+// 		}
+// 	}
+// 	catch(const std::exception& e){
+// 		std::cerr << e.what() << std::endl;
+// 	}
+// 	fclose(bandfile);
+// 	arma::cout << "Done" << arma::endl;
+// }
 
 /**
  * Method to add a Zeeman term to the Hamiltonian. 

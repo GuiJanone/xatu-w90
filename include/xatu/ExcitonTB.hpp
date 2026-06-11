@@ -113,6 +113,8 @@ class ExcitonTB : public Exciton<SystemTB> {
         void setMode(std::string);
         void setReciprocalVectors(int);
         void setRegularization(double);
+        void setBandTracking(bool);
+        void setBandTrackingThreshold(double);
 
     private:
         // Potentials

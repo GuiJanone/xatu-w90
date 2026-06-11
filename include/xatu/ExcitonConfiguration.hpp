@@ -60,6 +60,10 @@ class ExcitonConfiguration : public ConfigurationBase{
         std::string selfenergyPotential = "keldysh";
         // Flag to set whether or not to use the Tamm-Dancoff approximation
         bool tammdancoff = true;
+        // Flag to enable band tracking by spin continuity across k-points
+        bool bandTracking = false;
+        // Threshold for band tracking overlap ambiguity
+        double bandTrackingThreshold = 0.1;
     };
 
     public:

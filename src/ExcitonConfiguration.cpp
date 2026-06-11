@@ -142,6 +142,18 @@ void ExcitonConfiguration::parseContent(){
                 excitonInfo.tammdancoff = false;
             }
         }
+        else if(arg == "bandtracking"){
+            std::string str = parseWord(content[0]);
+            if ((str != "true") && (str != "false")){
+                throw std::invalid_argument("Band tracking option must be set to 'true' or 'false'.");
+            }
+            if (str == "true"){
+                excitonInfo.bandTracking = true;
+            }
+        }
+        else if(arg == "bandtrackingthreshold"){
+            excitonInfo.bandTrackingThreshold = parseScalar<double>(content[0]);
+        }
         else{    
             std::cout << "Unexpected argument: " << arg << ", skipping block..." << std::endl;
         }

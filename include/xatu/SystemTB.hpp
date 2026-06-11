@@ -45,13 +45,20 @@ class SystemTB : public System {
         arma::cx_mat overlap(arma::rowvec k) const;
         using System::solveBands;
         void solveBands(arma::rowvec&, arma::vec&, arma::cx_mat&) const;
+        void solveBands(std::string kpointsfile, bool bandTracking = true, double spinTol = 0.1) const;
+        void trackBands(const std::vector<arma::cx_mat>& prevEigvecs,
+                        const std::vector<arma::vec>&    prevSpinZs,
+                        const std::vector<arma::vec>&    prevEigvals,
+                        arma::cx_mat& eigvec,
+                        arma::vec&    eigval,
+                        double        spinTol) const;
 
         /* Gauge */
         arma::cx_vec latticeToAtomicGauge(const arma::cx_vec&, const arma::rowvec&);
         arma::cx_vec atomicToLatticeGauge(const arma::cx_vec&, const arma::rowvec&);
 
         /* Observables */
-        double expectedSpinZValue(const arma::cx_vec&);
+        double expectedSpinZValue(const arma::cx_vec&) const;
         double expectedSpinYValue(const arma::cx_vec&);
         double expectedSpinXValue(const arma::cx_vec&);      
 

@@ -120,7 +120,9 @@ void SystemTB::solveBands(arma::rowvec& k, arma::vec& eigval, arma::cx_mat& eigv
 		}
 		orthogonalize_hamiltonian(k, h);	
 	}
-
+	// Enforce Hermiticity to suppress numerical noise
+	h = (h + h.t()) / 2.0;
+	
 	arma::eig_sym(eigval, eigvec, h);
 }
 
@@ -136,6 +138,9 @@ void SystemTB::solveBands(arma::rowvec& k, arma::vec& eigval, arma::cx_mat& eigv
 void SystemTB::orthogonalize_hamiltonian(const arma::rowvec& k, arma::cx_mat& hamiltonian) const {
 	// First compute X
 	arma::cx_mat s = overlap(k);
+	// Enforce Hermiticity on overlap before diagonalizing
+	s = (s + s.t()) / 2.0;
+	
 	arma::vec eigval;
 	arma::cx_mat eigvec;
 	arma::eig_sym(eigval, eigvec, s);
@@ -213,7 +218,7 @@ arma::cx_vec SystemTB::atomicToLatticeGauge(const arma::cx_vec& coefs, const arm
  * @param eigvec State.
  * @returns Expectation value of Sz.
  * */
-double SystemTB::expectedSpinZValue(const arma::cx_vec& eigvec){
+double SystemTB::expectedSpinZValue(const arma::cx_vec& eigvec) const{
 
 	arma::cx_vec spinEigvalues = {1./2, -1./2};
     arma::cx_vec spinVector = arma::kron(arma::ones(basisdim/2), spinEigvalues);
@@ -313,5 +318,188 @@ arma::cx_vec SystemTB::velocity(const arma::rowvec k, int fBand, int sBand) cons
 
     return velocityMatrixElement;
 };
+
+/**
+ * Reorder eigenstates to maintain band continuity across k-points.
+ * @details Uses overlap maximization between consecutive k-points to track
+ * bands through crossings, preserving spin character. When overlaps are 
+ * ambiguous (nearly equal), spin quantum number <Sz> is used as a tiebreaker.
+ * @param prevEigvec Eigenvectors at the previous k-point (columns = bands).
+ * @param prevSpinZ  Sz expectation values at the previous k-point.
+ * @param eigvec     Eigenvectors at the current k-point (modified in-place).
+ * @param eigval     Eigenvalues at the current k-point (reordered to match).
+ * @param spinTol    Overlap difference below which spin tiebreaking is triggered.
+ */
+void SystemTB::trackBands(const std::vector<arma::cx_mat>& prevEigvecs,
+						  const std::vector<arma::vec>&    prevSpinZs,
+						  const std::vector<arma::vec>&    prevEigvals,
+						  arma::cx_mat&                    eigvec,
+						  arma::vec&                       eigval,
+						  double                           spinTol) const {
+	
+	int nbands  = eigvec.n_cols;
+	int history = prevEigvecs.size();
+	
+	arma::vec newSpinZ(nbands);
+	for (int j = 0; j < nbands; j++)
+		newSpinZ(j) = expectedSpinZValue(eigvec.col(j));
+	
+	// Build weighted average overlap from history.
+	// More recent k-points get higher weight.
+	arma::mat absOverlap(nbands, nbands, arma::fill::zeros);
+	double totalWeight = 0;
+	for (int h = 0; h < history; h++) {
+		double weight = std::pow(2.0, h);  // exponential: oldest=1, newest=2^(history-1)
+		absOverlap += weight * arma::abs(arma::cx_mat(prevEigvecs[h].t() * eigvec));
+		totalWeight += weight;
+	}
+	absOverlap /= totalWeight;
+	
+	// Also build extrapolated eigenvalue prediction from last two points
+	arma::vec predictedEigval(nbands, arma::fill::zeros);
+	if (history >= 2) {
+		predictedEigval = 2*prevEigvals[history-1] - prevEigvals[history-2];
+	} else {
+		predictedEigval = prevEigvals[history-1];
+	}
+	
+	// Build cost matrix: overlap (primary) + spin penalty + energy proximity
+	const double spinPenaltyScale  = 1e-3;
+	const double energyPenaltyScale = 1e-3;  // smallest scale, last resort
+	arma::mat cost(nbands, nbands);
+	
+	// Normalize predicted energy differences to [0,1] range
+	double maxEnergyDiff = 0;
+	for (int i = 0; i < nbands; i++)
+		for (int j = 0; j < nbands; j++)
+			maxEnergyDiff = std::max(maxEnergyDiff, std::abs(eigval(j) - predictedEigval(i)));
+							  
+	// Avoid division by zero if all energies are identical
+	if (maxEnergyDiff < 1e-12) maxEnergyDiff = 1.0;
+	
+	for (int i = 0; i < nbands; i++) {
+		for (int j = 0; j < nbands; j++) {
+			double spinDiff   = std::abs(newSpinZ(j) - prevSpinZs.back()(i));
+			double energyDiff = std::abs(eigval(j) - predictedEigval(i));
+			cost(i, j) = -absOverlap(i, j) 
+			+ spinPenaltyScale  * spinDiff
+			+ energyPenaltyScale * energyDiff;
+		}
+	}
+	
+	// Hungarian algorithm — unchanged from before
+	std::vector<int> rowAssignment(nbands);
+	std::vector<int> p(nbands + 1, 0);
+	arma::vec u(nbands + 1, arma::fill::zeros);
+	arma::vec v(nbands + 1, arma::fill::zeros);
+	std::vector<int> way(nbands + 1, 0);
+	
+	for (int i = 1; i <= nbands; i++) {
+		p[0] = i;
+		int j0 = 0;
+		arma::vec minVal(nbands + 1, arma::fill::value(std::numeric_limits<double>::max()));
+		std::vector<bool> used(nbands + 1, false);
+		do {
+			used[j0] = true;
+			int i0 = p[j0], j1 = -1;
+			double delta = std::numeric_limits<double>::max();
+			for (int j = 1; j <= nbands; j++) {
+				if (!used[j]) {
+					double cur = cost(i0 - 1, j - 1) - u(i0) - v(j);
+					if (cur < minVal(j)) {
+						minVal(j) = cur;
+						way[j] = j0;
+					}
+					if (minVal(j) < delta) {
+						delta = minVal(j);
+						j1 = j;
+					}
+				}
+			}
+			for (int j = 0; j <= nbands; j++) {
+				if (used[j]) { u(p[j]) += delta; v(j) -= delta; }
+				else          { minVal(j) -= delta; }
+			}
+			j0 = j1;
+		} while (p[j0] != 0);
+		do {
+			int j1 = way[j0];
+			p[j0] = p[j1];
+			j0 = j1;
+		} while (j0);
+	}
+	for (int j = 1; j <= nbands; j++)
+		if (p[j] != 0) rowAssignment[p[j] - 1] = j - 1;
+		
+		arma::cx_mat reorderedEigvec(eigvec.n_rows, nbands);
+	arma::vec    reorderedEigval(nbands);
+	for (int i = 0; i < nbands; i++) {
+		reorderedEigvec.col(i) = eigvec.col(rowAssignment[i]);
+		reorderedEigval(i)     = eigval(rowAssignment[i]);
+	}
+	eigvec = reorderedEigvec;
+	eigval = reorderedEigval;
+}
+
+/**
+ * Method to write energy bands to file with optional spin-continuity tracking.
+ * @details Overrides System::solveBands(string) to add band tracking via
+ * spin quantum number, which requires SystemTB-specific methods.
+ * @param kpointsfile File with the kpoints where we want to obtain the bands.
+ * @param bandTracking Whether to reorder eigenstates at each k to preserve
+ *                     spin character through crossings.
+ */
+void SystemTB::solveBands(std::string kpointsfile, bool bandTracking, double spinTol) const {
+	std::ifstream inputfile;
+	std::string line;
+	double kx, ky, kz;
+	arma::vec eigval;
+	arma::cx_mat eigvec;
+	
+	const int historySize = 4;
+	std::vector<arma::cx_mat> prevEigvecs;
+	std::vector<arma::vec>    prevSpinZs;
+	std::vector<arma::vec>    prevEigvals;
+	
+	std::string outputfilename = kpointsfile + ".bands";
+	FILE* bandfile = fopen(outputfilename.c_str(), "w");
+	try {
+		inputfile.open(kpointsfile.c_str());
+		while (std::getline(inputfile, line)) {
+			std::istringstream iss(line);
+			iss >> kx >> ky >> kz;
+			arma::rowvec kpoint{kx, ky, kz};
+			solveBands(kpoint, eigval, eigvec);
+			
+			if (bandTracking && !prevEigvecs.empty()) {
+				trackBands(prevEigvecs, prevSpinZs, prevEigvals, eigvec, eigval, spinTol);
+			}
+			if (bandTracking) {
+				arma::vec spinZ(eigvec.n_cols);
+				for (int ib = 0; ib < (int)eigvec.n_cols; ib++)
+					spinZ(ib) = expectedSpinZValue(eigvec.col(ib));
+				
+				prevEigvecs.push_back(eigvec);
+				prevSpinZs.push_back(spinZ);
+				prevEigvals.push_back(eigval);
+				
+				if ((int)prevEigvecs.size() > historySize) {
+					prevEigvecs.erase(prevEigvecs.begin());
+					prevSpinZs.erase(prevSpinZs.begin());
+					prevEigvals.erase(prevEigvals.begin());
+				}
+			}
+			
+			for (int i = 0; i < (int)eigval.n_elem; i++)
+				fprintf(bandfile, "%12.6f\t", eigval(i));
+			fprintf(bandfile, "\n");
+		}
+	}
+	catch (const std::exception& e) {
+		std::cerr << e.what() << std::endl;
+	}
+	fclose(bandfile);
+	arma::cout << "Done" << arma::endl;
+}
 
 }

@@ -44,6 +44,8 @@ int main(int argc, char* argv[]){
     TCLAP::ValuesConstraint<std::string> allowedMethods(methods);
     TCLAP::ValueArg<std::string> methodArg("m", "method", "Method to solve the Bethe-Salpeter equation.", false, "diag", &allowedMethods, cmd);
     TCLAP::ValueArg<std::string> bandsArg("b", "bands", "Computes the bands of the system on the specified kpoints.", false, "kpoints.txt", "Filename", cmd);
+    TCLAP::SwitchArg bandTrackingArg("l", "bandtrack", "Enable band tracking by spin continuity when computing bands.", cmd, false);
+    TCLAP::ValueArg<double> bandTrackingThresholdArg("", "bandtrackthresh", "Overlap ambiguity threshold for band tracking (default: 0.1).", false, 0.1, "threshold", cmd);
     
     TCLAP::UnlabeledValueArg<std::string> systemArg("systemfile", "System file", true, "system.txt", "filename", cmd);
     TCLAP::UnlabeledValueArg<std::string> excitonArg("excitonfile", "Exciton file", false, "exciton.txt", "filename", cmd);
@@ -103,9 +105,7 @@ int main(int argc, char* argv[]){
     if (bandsArg.isSet()){
         xatu::SystemTB system = xatu::SystemTB(*systemConfig);
         system.setAU(dftArg.isSet());
-
-        system.solveBands(kpointsfile);
-
+        system.solveBands(kpointsfile, bandTrackingArg.isSet(), bandTrackingThresholdArg.getValue());
         return 0;
     }
     else{

@@ -45,6 +45,8 @@ class Exciton {
         // Flags
         bool exchange;
         bool selfenergy;
+        bool bandTracking_;
+        double bandTrackingThreshold_;
         
         bool tammdancoff_;
 
@@ -82,6 +84,9 @@ class Exciton {
         const double& scissor = scissor_;
         // Returns whether or not TDA is used
         const bool& TDA = tammdancoff_;
+        // returns whether or not to track bands according to continuity and spin
+        const bool& bandTracking = bandTracking_;
+        const double& bandTrackingThreshold = bandTrackingThreshold_;
 
         const arma::mat& eigvalKStack = eigvalKStack_;
         const arma::mat& eigvalKQStack = eigvalKQStack_;
