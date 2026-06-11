@@ -29,10 +29,13 @@ arma::cx_vec ResultTB::spinX(const arma::cx_vec& coefs){
     arma::cx_double holeSpin = 0;
     double totalSpin = 0;
     int dimX = exciton->basisStates.n_rows;
+    
+    // Extract only the resonant part if full BSE
+    arma::cx_vec coefsRes = (!exciton->TDA && coefs.n_elem == 2*dimX) ? arma::cx_vec(coefs.head(dimX)) : coefs;
 
     arma::cx_vec spinEigvalues = {1./2, -1./2};
     arma::cx_vec spinVector = arma::kron(arma::ones(system->basisdim/2), spinEigvalues);    
-	arma::cx_vec eigvec, spinEigvec;
+    arma::cx_vec eigvec, spinEigvec;
 
     // Initialize hole spin and electron spin operators
     int nvbands = exciton->valenceBands.n_elem;
@@ -84,8 +87,10 @@ arma::cx_vec ResultTB::spinX(const arma::cx_vec& coefs){
     }
 
     // Perform tensor products with the remaining quantum numbers
-    holeSpin = -arma::cdot(coefs, spinHole*coefs);
-    electronSpin = arma::cdot(coefs, spinElectron*coefs);
+    holeSpin     = -arma::cdot(coefsRes, spinHole * coefsRes);
+    electronSpin =  arma::cdot(coefsRes, spinElectron * coefsRes);
+    // holeSpin = -arma::cdot(coefs, spinHole*coefs);
+    // electronSpin = arma::cdot(coefs, spinElectron*coefs);
     totalSpin = real((holeSpin + electronSpin));
     
     arma::cx_vec results = {totalSpin, holeSpin, electronSpin};
@@ -102,7 +107,12 @@ arma::cx_vec ResultTB::spinX(const arma::cx_vec& coefs){
  * and the second is the relative velocity of the exciton->
  */
 arma::mat ResultTB::velocity(int index){
-
+    
+    int dimX = exciton->basisStates.n_rows; // N
+    int eigvecDim = (!exciton->TDA) ? 2*dimX : dimX;
+    // Extract resonant block of the eigenvector for this state
+    arma::cx_vec stateCoefs = eigvec.col(index).head(dimX); // always take first N components
+    
     arma::cx_mat velocity = arma::zeros<arma::cx_mat>(3, 2);
 
     arma::cx_vec total_e_velocity = arma::zeros<arma::cx_vec>(3);
@@ -120,14 +130,14 @@ arma::mat ResultTB::velocity(int index){
         int c = exciton->conductionBands(j);
         int eigvecIndex = n*exciton->valenceBands.n_elem * exciton->conductionBands.n_elem + j*exciton->valenceBands.n_elem + i;
 
-        std::complex<double> coef = eigvec.col(index)(eigvecIndex);
+        std::complex<double> coef = stateCoefs(eigvecIndex);
 
         for (int jp = 0; jp < exciton->conductionBands.n_elem; jp++){
             int cp = exciton->conductionBands(jp);
             arma::cx_vec velocitySP = velocitySingleParticle(cp, c, n, "conduction");
 
             int eigvecIndexP = n*exciton->valenceBands.n_elem * exciton->conductionBands.n_elem + jp*exciton->valenceBands.n_elem + i;
-            local_e_velocity += velocitySP * coef * std::conj(eigvec.col(index)(eigvecIndexP));
+            local_e_velocity += velocitySP * coef * std::conj(stateCoefs(eigvecIndexP));
         }
 
         for (int ip = 0; ip < exciton->valenceBands.n_elem; ip++){
@@ -135,7 +145,7 @@ arma::mat ResultTB::velocity(int index){
             arma::cx_vec velocitySP = velocitySingleParticle(v, vp, n, "valence");
 
             int eigvecIndexP = n*exciton->valenceBands.n_elem * exciton->conductionBands.n_elem + j*exciton->valenceBands.n_elem + ip;
-            local_h_velocity += velocitySP * coef * std::conj(eigvec.col(index)(eigvecIndexP));
+            local_h_velocity += velocitySP * coef * std::conj(stateCoefs(eigvecIndexP));
         }
 
         #pragma omp critical
@@ -242,6 +252,9 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
     int filling = system->filling;
     int nv = exciton->valenceBands.n_elem;
     int nc = exciton->conductionBands.n_elem;
+    
+    // only resonant states are passed to the kubo module
+    arma::cx_mat eigvec_resonant = (exciton->TDA) ? m_eigvec : m_eigvec.rows(0, exciton->excitonbasisdim - 1);
 
     arma::mat Rvec = system->unitCellList;
     // Extend bravais lattice to 3x3 matrix
@@ -322,7 +335,7 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
 
     exciton_oscillator_strength_(&nR, &norb, &norb_ex, &nv, &nc, &filling, 
              Rvec.memptr(), R.memptr(), extendedMotifFull.memptr(), hhop.memptr(), shop.memptr(), &nk, rkx.memptr(),
-             rky.memptr(), rkz.memptr(), m_eigvec.memptr(), m_eigval.memptr(), eigval_sp.memptr(), eigvec_sp.memptr(),
+             rky.memptr(), rkz.memptr(), eigvec_resonant.memptr(), m_eigval.memptr(), eigval_sp.memptr(), eigvec_sp.memptr(),
              vme, vme_ex.memptr(), &convert_to_au);
 
     delete[] vme;
@@ -344,9 +357,13 @@ double ResultTB::realSpaceWavefunction(const arma::cx_vec& BSEcoefs, int electro
 
     std::complex<double> imag(0, 1);
     double totalAmplitude = 0;
-    arma::cx_vec eigvec = arma::cx_vec(BSEcoefs);
+    int dimX = exciton->basisStates.n_rows;
+    // Project to resonant block if full BSE eigenvector is passed
+    arma::cx_vec eigvec = (!exciton->TDA && BSEcoefs.n_elem == 2*dimX) ? arma::cx_vec(BSEcoefs.head(dimX)) : arma::cx_vec(BSEcoefs);
     int eOrbitals = system->orbitals(system->motif.row(electronIndex)(3));
     int hOrbitals = system->orbitals(system->motif.row(holeIndex)(3));
+
+    
 
     // Compute index corresponding to electron and hole
     int eIndex = 0;
@@ -537,18 +554,45 @@ void ResultTB::writeAbsorptionSpectrum(){
  * @param cell Unit cell used in the exponential.
  * @return Coefficients with the added exponential.
  */
-arma::cx_vec ResultTB::addExponential(arma::cx_vec& coefs, const arma::rowvec& cell){
+// arma::cx_vec ResultTB::addExponential(arma::cx_vec& coefs, const arma::rowvec& cell){
+// 
+//     arma::vec product = system->kpoints * cell.t();
+//     std::complex<double> imag(0, 1);
+//     arma::cx_vec exponentials = arma::exp(imag*product);
+//     int nBandCombinations = exciton->valenceBands.n_elem*exciton->conductionBands.n_elem;
+//     exponentials = arma::kron(exponentials, arma::ones<arma::cx_vec>(nBandCombinations));
+// 
+//     coefs = coefs % exponentials;
+// 
+//     return coefs;
+// }
 
+arma::cx_vec ResultTB::addExponential(arma::cx_vec& coefs, const arma::rowvec& cell){
     arma::vec product = system->kpoints * cell.t();
     std::complex<double> imag(0, 1);
-    arma::cx_vec exponentials = arma::exp(imag*product);
-    int nBandCombinations = exciton->valenceBands.n_elem*exciton->conductionBands.n_elem;
+    arma::cx_vec exponentials = arma::exp(imag * product);
+    int nBandCombinations = exciton->valenceBands.n_elem * exciton->conductionBands.n_elem;
     exponentials = arma::kron(exponentials, arma::ones<arma::cx_vec>(nBandCombinations));
-
+    
+    // Guard against size mismatch
+    if (coefs.n_elem != exponentials.n_elem){
+        throw std::runtime_error(
+            "addExponential: coefs length " + std::to_string(coefs.n_elem) +
+            " does not match exponentials length " + std::to_string(exponentials.n_elem) +
+            ". Pass only the resonant block when tammdancoff is off.");
+    }
     coefs = coefs % exponentials;
-
     return coefs;
 }
+
+/**
+ * Method to get only the resonant block of the BSE
+ * @return resonant block
+ */
+// arma::cx_vec resonantBlock(const arma::cx_vec& v) const {
+//     int dimX = exciton->basisStates.n_rows;
+//     return (!exciton->TDA && (int)v.n_elem == 2*dimX) ? arma::cx_vec(v.head(dimX)) : v;
+// }
 
 }
 

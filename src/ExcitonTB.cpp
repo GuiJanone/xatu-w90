@@ -984,7 +984,30 @@ std::complex<double> ExcitonTB::selfenergyTerm(bool Qtoggle, uint32_t k_index, u
             return self;
         }
         else if (mode == "reciprocalspace"){
-            std::cout << self << std::endl;
+            for (int v3 = 0; v3 < (int)valenceBands.n_elem; v3++){
+                for (uint32_t k3_index = 0; k3_index < system->nk; k3_index++){
+                    if (gauge == "atomic"){
+                        coefsK3 = system_->latticeToAtomicGauge(eigvecKStack.slice(k3_index).col(v3), system->kpoints.row(k3_index));
+                    }
+                    else{
+                        coefsK3 = eigvecKStack.slice(k3_index).col(v3);
+                    }
+                    arma::rowvec k  = system->kpoints.row(k_index);
+                    arma::rowvec k3 = system->kpoints.row(k3_index);
+                    
+                    // Direct (Hartree-like) term: q=0, analogous to motifFT0
+                    std::complex<double> directTerm = reciprocalInteractionTerm(
+                        coefsK, coefsK3, coefsKp, coefsK3,
+                        k, k3, k, k3, this->nReciprocalVectors);
+                    
+                    // Exchange (Fock-like) term: q=k3-k, analogous to motifFT3
+                    std::complex<double> exchangeTerm = reciprocalInteractionTerm(
+                        coefsK, coefsK3, coefsK3, coefsKp,
+                        k, k3, k3, k, this->nReciprocalVectors);
+                    
+                    self = self + directTerm - exchangeTerm;
+                }
+            }
             return self;
         }
     }
@@ -1087,17 +1110,14 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
             }
             if(!this->tammdancoff_){
                 // Hcoup terms correspond to a swap c2<->v2
-                // Hares terms correspond to swapping both c2<->v2 and c<->v
                 coefsKsw = eigvecKStack.slice(k_index).col(c);
                 coefsKQsw = eigvecKQStack.slice(kQ_index).col(v);
                 coefsK2sw = eigvecKStack.slice(k2_index).col(c2);
                 coefsK2Qsw = eigvecKQStack.slice(k2Q_index).col(v2);
                 
                 Dcoup = realSpaceInteractionTerm(coefsK, coefsK2Qsw, coefsK2sw, coefsKQ, motifFT);
-                // Dares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsK2Qsw, coefsKsw, motifFT);
                 if(this->exchange){
                     Xcoup = realSpaceInteractionTerm(coefsK, coefsK2Qsw, coefsKQ, coefsK2sw, this->ftMotifQ);
-                    // Xares = realSpaceInteractionTerm(coefsKQsw, coefsK2sw, coefsKsw, coefsK2Qsw, this->ftMotifQ);
                 }                
             }
         }
@@ -1108,6 +1128,31 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
             if(this->exchange){
                 X = reciprocalInteractionTerm(coefsK2Q, coefsK2, coefsKQ, coefsK, k2 + Q, k2, k + Q, k, this->nReciprocalVectors);
             }
+            // Self-energy terms — analogous to real-space branch
+            if(this->selfenergy){
+                bool testval  = (kQ_index == k2Q_index and v  == v2);
+                bool testcond = (k_index  == k2_index  and c  == c2);
+                if (testval or testcond){
+                    if (testval){
+                        selfcond = selfenergyTerm(true,  kQ_index, k2_index, coefsKQ,  coefsK2Q);
+                    }
+                    if (testcond){
+                        selfval  = selfenergyTerm(false, k2_index, k_index,  coefsK2,  coefsK);
+                    }
+                }
+            }
+            if(!this->tammdancoff_){
+                // Coupling block — swap c2<->v2
+                coefsKsw   = eigvecKStack.slice(k_index).col(c);
+                coefsKQsw  = eigvecKQStack.slice(kQ_index).col(v);
+                coefsK2sw  = eigvecKStack.slice(k2_index).col(c2);
+                coefsK2Qsw = eigvecKQStack.slice(k2Q_index).col(v2);
+                
+                Dcoup = reciprocalInteractionTerm(coefsK, coefsK2Qsw, coefsK2sw, coefsKQ, k, k2 + Q, k2, k + Q, this->nReciprocalVectors);
+                if(this->exchange){
+                    Xcoup = reciprocalInteractionTerm(coefsK, coefsK2Qsw, coefsKQ, coefsK2sw, k, k2 + Q, k + Q, k2, this->nReciprocalVectors);
+                }
+            }
         }
         
         if (i == j){
@@ -1116,9 +1161,6 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                 - (D - X)/2.;
                 
                 HBScoup_(i, j) = - (Dcoup - Xcoup)/2.;
-                
-                // HBSares_(i, j) = (- this->scissor + (eigvalKQStack.col(kQ_index)(v) /*+ selfcond*/) - (eigvalKStack.col(k_index)(c)/* + selfval*/))/2.
-                // - (Dares - Xares)/2.;
             }
             else if(this->tammdancoff_){
                 HBS_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(c) + selfcond) - (eigvalKStack.col(k_index)(v) + selfval))/2.
@@ -1128,9 +1170,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         else{
             if(!this->tammdancoff_){
                 HBSres_(i, j)  = - (D - X);
-                // HBScoup_(i, j) =   (Dcoup + Xcoup); //this expression is wrong, according to PRB.92.045209 + others
                 HBScoup_(i, j) = - (Dcoup - Xcoup);
-                //HBSares_(i, j) = - (Dares - Xares);
             }
             else if(this->tammdancoff_){
                 HBS_(i, j)  = - (D - X);
@@ -1140,7 +1180,6 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
     if(!this->tammdancoff_){
         HBSres_  = HBSres_  + HBSres_.t();
         HBScoup_ = HBScoup_ + HBScoup_.t();
-        //HBSares_ = HBSares_ + HBSares_.t();
         
         /*
          *      We don't explicitly compute the antiresonat block nor the antires-res block as
@@ -1149,7 +1188,6 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
          *      10.1103/PhysRevB.92.045209   
          */
         HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, -(HBSres_.t()) ) );
-        //std::cout << join_rows( join_cols( arma::mat{{1,1},{1,1}}, arma::mat{{2,2},{2,2}} ), join_cols( arma::mat{{3,3},{3,3}}, arma::mat{{4,4},{4,4}} ) )<< std::endl;
         
     }
     else if(this->tammdancoff_){

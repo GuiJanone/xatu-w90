@@ -423,7 +423,7 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
         int maxEigval = (newn == 0) ? 2*exciton->excitonbasisdim : newn;
         int minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0; 
         // int minState = 0; 
-        fprintf(textfile, "%d\n", maxEigval);
+        fprintf(textfile, "%d\n", maxEigval-minState);
         
         // then one eigenvalue per line
         for(int i = minState; i < minState+maxEigval; ++i){
@@ -552,7 +552,7 @@ void Result<T>::writeSpin(int n, double encut, FILE* textfile){
             }
         }
         int maxState = (newn == 0) ? 2*exciton->excitonbasisdim : newn;  
-        int minState = (newn < exciton->excitonbasisdim) ? exciton->excitonbasisdim : 0; 
+        int minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0; 
         // int minState = 0; 
         fprintf(textfile, "n\tSt\tSe\tSh\n");
         for(unsigned int i = minState; i < minState+maxState; i++){

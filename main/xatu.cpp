@@ -265,6 +265,8 @@ int main(int argc, char* argv[]){
                 statesToWrite = arma::regspace<arma::uvec>(bulkExciton.excitonbasisdim, bulkExciton.excitonbasisdim + nstates - 1);
                 std::cout << statesToWrite << std::endl;
             }
+            // missing else: when nstates >= N, statesToWrite should be 0..nstates-1 
+            // which is already the default behaviour
         }
         std::cout << "Writing real space w.f. to file: " << filename_rswf << std::endl;
         arma::rowvec holeCell = {0., 0., 0.};

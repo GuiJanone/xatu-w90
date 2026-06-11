@@ -15,7 +15,7 @@ namespace xatu {
 void writeVectorToFile(arma::vec, FILE*);
 void writeVectorToFile(arma::rowvec, FILE*);
 void writeVectorsToFile(const arma::mat&, FILE*, std::string mode = "row");
-std::vector<std::vector<double>>  detectDegeneracies(const arma::vec&, int, int);
+std::vector<std::vector<double>>  detectDegeneracies(const arma::vec&, int, int, int);
 void printHeader();
 
 /* Input */
@@ -36,28 +36,27 @@ bool checkIfTriangular(const arma::cx_mat&);
 * @param precision Number of decimals (sets degeneracy threshold)
 **/
 template<typename T>
-void printEnergies(const std::unique_ptr<T>& results, int n = 8, double encut = 0.0, int precision = 6){
-
-    // Print header
+void printEnergies(const std::unique_ptr<T>& results, int n = 8, double encut = 0.0, int precision = 6, int nstart = 0){
+    
+    // print header
     printf("+---------------+-----------------------------+-----------------------------+\n");
     printf("|       N       |          Eigval (eV)        |          Degeneracy         |\n");
     printf("+---------------+-----------------------------+-----------------------------+\n");
     
     int newn = n;
-    
     if (encut != 0.0){
-        newn = (int) arma::abs(results->eigval - encut).index_min() + 1;
+        newn = (int) arma::abs(results->eigval - encut).index_min() + 1 - nstart;
     }
-    std::vector<std::vector<double>> pairs = detectDegeneracies(results->eigval, newn, precision);
+    
+    std::vector<std::vector<double>> pairs = detectDegeneracies(results->eigval, newn, precision, nstart);
     int it = 1;
-
     for(auto pair : pairs){
         double energy  = pair[0];
         int degeneracy = (int)pair[1];
-
+        
         printf("|%15d|%29.*lf|%29d|\n", it, precision, energy, degeneracy);
         printf("+---------------+-----------------------------+-----------------------------+\n");
-
+        
         it++;
     }
 }

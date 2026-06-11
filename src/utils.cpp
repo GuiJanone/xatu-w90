@@ -118,37 +118,36 @@ void writeDensityOfStates(const arma::mat& energies, double delta, FILE* dosfile
 
 /* Intended to be used within printEnergies, not in an standalone way. Computes degeneracy of each 
 up to a given precision with cost O(n) */
-std::vector<std::vector<double>> detectDegeneracies(const arma::vec& eigval, int n, int precision){
+std::vector<std::vector<double>> detectDegeneracies(const arma::vec& eigval, int n, int precision, int nstart = 0){
 
     if(n < 0){
         throw std::invalid_argument("detectDegeneracies: n must be a positive integer");
     }
-    else if(n > eigval.n_elem){
+    else if(nstart + n > eigval.n_elem){
         throw std::invalid_argument("detectDegeneracies: n must be lower than total number of eigenstates");
     }
 
     std::vector<std::vector<double>> pairs;
-    std::vector<double> pair;
-    double previusEnergy = eigval(0);
-    int degeneracy = 1;
-    double threshold = pow(10, -precision);
-    double energy;
-    for(int i = 1; i < n; i++){
-        energy = eigval(i);
-        if(std::abs(energy - previusEnergy) < threshold){
-            degeneracy++;
-        }
-        else{
-            pair = std::vector<double>{previusEnergy, (double)degeneracy};
-            pairs.push_back(pair);
-            degeneracy = 1;
-        }
-        previusEnergy = energy;
-    }
-    pair = std::vector<double>{previusEnergy, (double)degeneracy};
-    pairs.push_back(pair);
-
-    return pairs;
+	std::vector<double> pair;
+	double previusEnergy = eigval(nstart);  // seed from nstart, not 0
+	int degeneracy = 1;
+	double threshold = pow(10, -precision);
+	double energy;
+	for(int i = nstart + 1; i < nstart + n; i++){  // loop from nstart
+		energy = eigval(i);
+		if(std::abs(energy - previusEnergy) < threshold){
+			degeneracy++;
+		}
+		else{
+			pair = std::vector<double>{previusEnergy, (double)degeneracy};
+			pairs.push_back(pair);
+			degeneracy = 1;
+		}
+		previusEnergy = energy;
+	}
+	pair = std::vector<double>{previusEnergy, (double)degeneracy};
+	pairs.push_back(pair);
+	return pairs;
 }
 
 /**
