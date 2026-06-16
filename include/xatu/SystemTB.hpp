@@ -45,7 +45,7 @@ class SystemTB : public System {
         arma::cx_mat overlap(arma::rowvec k) const;
         using System::solveBands;
         void solveBands(arma::rowvec&, arma::vec&, arma::cx_mat&) const;
-        void solveBands(std::string kpointsfile, bool bandTracking = true, double spinTol = 0.1) const;
+        void solveBands(std::string kpointsfile, bool bandTracking = false, double spinTol = 0.1) const;
         void trackBands(const std::vector<arma::cx_mat>& prevEigvecs,
                         const std::vector<arma::vec>&    prevSpinZs,
                         const std::vector<arma::vec>&    prevEigvals,

@@ -819,7 +819,7 @@ void ExcitonTB::initializeMotifFT(int i, const arma::mat& cells, potptr potentia
 
 /**
  * Main method to compute all the relevant single-particle quantities (bands, eigenstates and fourier transforms),
- * to compute the Bethe-Salpeter equation.
+ * to compute the Bethe-Salpeter equation. Updated to keep track of band spin and prevent weird relabelings whenever bandtracking is set to true.
  * @details It precomputes and saves the relevant data in the heap for later computations.
  * @param triangular Boolean to specify whether the Hamiltonian matrices are triangular (default = false).
  * @return void
@@ -838,14 +838,12 @@ void ExcitonTB::initializeResultsH0() {
     this->eigvalKQStack_ = arma::mat(nTotalBands, nk);
     this->ftMotifStack   = arma::cx_cube(natoms, natoms, system->meshBZ.n_rows);
     this->ftMotifQ       = arma::cx_mat(natoms, natoms);
-    if (this->selfenergy) {
+    if (this->selfenergy)
         this->ftMotifQ3 = arma::cx_cube(natoms, natoms, system->meshBZ.n_rows);
-    }
     
     arma::vec auxEigVal(basisdim);
     arma::cx_mat auxEigvec(basisdim, basisdim);
     
-    // Rolling history for k and kQ tracking
     const int historySize = 4;
     std::vector<arma::cx_mat> prevEigvecs,  prevEigvecsQ;
     std::vector<arma::vec>    prevSpinZs,   prevSpinZsQ;
@@ -856,7 +854,6 @@ void ExcitonTB::initializeResultsH0() {
     
     for (int i = 0; i < nk; i++) {
         arma::rowvec k = system->kpoints.row(i);
-        
         system->solveBands(k, auxEigVal, auxEigvec);
         
         if (bandTracking_ && !prevEigvecs.empty()) {
@@ -864,14 +861,32 @@ void ExcitonTB::initializeResultsH0() {
                                auxEigvec, auxEigVal, bandTrackingThreshold_);
         }
         if (bandTracking_) {
+            // Sort within spin channels — same-spin bands always energy-ordered
+            std::vector<int> upIdx, downIdx;
+            for (int ib = 0; ib < basisdim; ib++) {
+                if (system->expectedSpinZValue(auxEigvec.col(ib)) > 0)
+                    upIdx.push_back(ib);
+                else
+                    downIdx.push_back(ib);
+            }
+            std::sort(upIdx.begin(), upIdx.end(),
+                      [&](int a, int b){ return auxEigVal(a) < auxEigVal(b); });
+            std::sort(downIdx.begin(), downIdx.end(),
+                      [&](int a, int b){ return auxEigVal(a) < auxEigVal(b); });
+            arma::cx_mat sortedEigvec(basisdim, basisdim);
+            arma::vec    sortedEigval(basisdim);
+            int col = 0;
+            for (int idx : upIdx)   { sortedEigvec.col(col) = auxEigvec.col(idx); sortedEigval(col++) = auxEigVal(idx); }
+            for (int idx : downIdx) { sortedEigvec.col(col) = auxEigvec.col(idx); sortedEigval(col++) = auxEigVal(idx); }
+            auxEigvec = sortedEigvec;
+            auxEigVal = sortedEigval;
+            
             arma::vec spinZ(basisdim);
             for (int ib = 0; ib < basisdim; ib++)
                 spinZ(ib) = system->expectedSpinZValue(auxEigvec.col(ib));
-            
             prevEigvecs.push_back(auxEigvec);
             prevSpinZs.push_back(spinZ);
             prevEigvals.push_back(auxEigVal);
-            
             if ((int)prevEigvecs.size() > historySize) {
                 prevEigvecs.erase(prevEigvecs.begin());
                 prevSpinZs.erase(prevSpinZs.begin());
@@ -892,14 +907,31 @@ void ExcitonTB::initializeResultsH0() {
                                    auxEigvec, auxEigVal, bandTrackingThreshold_);
             }
             if (bandTracking_) {
+                std::vector<int> upIdx, downIdx;
+                for (int ib = 0; ib < basisdim; ib++) {
+                    if (system->expectedSpinZValue(auxEigvec.col(ib)) > 0)
+                        upIdx.push_back(ib);
+                    else
+                        downIdx.push_back(ib);
+                }
+                std::sort(upIdx.begin(), upIdx.end(),
+                          [&](int a, int b){ return auxEigVal(a) < auxEigVal(b); });
+                std::sort(downIdx.begin(), downIdx.end(),
+                          [&](int a, int b){ return auxEigVal(a) < auxEigVal(b); });
+                arma::cx_mat sortedEigvec(basisdim, basisdim);
+                arma::vec    sortedEigval(basisdim);
+                int col = 0;
+                for (int idx : upIdx)   { sortedEigvec.col(col) = auxEigvec.col(idx); sortedEigval(col++) = auxEigVal(idx); }
+                for (int idx : downIdx) { sortedEigvec.col(col) = auxEigvec.col(idx); sortedEigval(col++) = auxEigVal(idx); }
+                auxEigvec = sortedEigvec;
+                auxEigVal = sortedEigval;
+                
                 arma::vec spinZQ(basisdim);
                 for (int ib = 0; ib < basisdim; ib++)
                     spinZQ(ib) = system->expectedSpinZValue(auxEigvec.col(ib));
-                
                 prevEigvecsQ.push_back(auxEigvec);
                 prevSpinZsQ.push_back(spinZQ);
                 prevEigvalsQ.push_back(auxEigVal);
-                
                 if ((int)prevEigvecsQ.size() > historySize) {
                     prevEigvecsQ.erase(prevEigvecsQ.begin());
                     prevSpinZsQ.erase(prevSpinZsQ.begin());
@@ -916,43 +948,28 @@ void ExcitonTB::initializeResultsH0() {
             eigvalKQStack_.col(i)   = eigvalKStack_.col(i);
         }
     }
-    
     std::cout << "Done" << std::endl;
-
-    if(this->mode == "realspace"){
+    
+    if (this->mode == "realspace") {
         std::cout << "Computing lattice Fourier transform... " << std::flush;
-
         potptr directPotential = selectPotential(this->potential_);
         #pragma omp parallel for
-        for (unsigned int i = 0; i < system->meshBZ.n_rows; i++){
-            // BIGGEST BOTTLENECK OF THE CODE
+        for (unsigned int i = 0; i < system->meshBZ.n_rows; i++) {
             initializeMotifFT(i, cells, directPotential);
-            if(this->selfenergy){
-                if(arma::norm(Q) != 0){
+            if (this->selfenergy) {
+                if (arma::norm(Q) != 0) {
                     potptr selfenergyPotential = selectPotential(this->selfenergyPotential_);
-                    this->ftMotifQ3.slice(i) = motifFTMatrix(system->kpoints.row(i) - this->Q, cells, selfenergyPotential);
-                }
-                else {
+                    this->ftMotifQ3.slice(i) = motifFTMatrix(system->kpoints.row(i) - this->Q,
+                                                             cells, selfenergyPotential);
+                } else {
                     potptr selfenergyPotential = selectPotential(this->selfenergyPotential_);
                     this->ftMotifQ3.slice(i) = this->ftMotifStack.slice(i);
-                };
+                }
             }
-            
-
-                /* AJU 24-11-23: Progress bar does not work properly with parallel for 
-                   Fix it or remove it direcly? */
-                // percent = (100 * (i + 1)) / meshBZ.n_rows ;
-                // if (percent >= displayNext){
-                //     cout << "\r" << "[" << std::string(percent / 5, '|') << std::string(100 / 5 - percent / 5, ' ') << "]";
-                //     cout << percent << "%";
-                //     std::cout.flush();
-                //     displayNext += step;
-                // }
         }
         std::cout << "Done\n" << std::endl;
     }
-
-    if(this->exchange){
+    if (this->exchange) {
         potptr exchangePotential = selectPotential(this->exchangePotential_);
         this->ftMotifQ = motifFTMatrix(this->Q, cells, exchangePotential);
     }
@@ -1539,7 +1556,7 @@ double ExcitonTB::fermiGoldenRule(const ExcitonTB& targetExciton,
  * @param increasing Used to specify whether the gap increases or decreases with k.
  * @return k vector of the equivalent electron-hole pair.
 */
-arma::rowvec ExcitonTB::findElectronHolePair(const ExcitonTB& targetExciton, 
+arma::rowvec ExcitonTB::findElectronHolePair(const ExcitonTB& targetExciton,
                                              double energy, std::string side, bool increasing) {
     double n = 10;
     arma::rowvec min_k, max_k, kmin, kmax;
@@ -1547,8 +1564,7 @@ arma::rowvec ExcitonTB::findElectronHolePair(const ExcitonTB& targetExciton,
     if (side == "right") {
         min_k = system->kpoints.row(nk/2);
         max_k = -system->kpoints.row(0);
-    }
-    else if (side == "left") {
+    } else if (side == "left") {
         max_k = system->kpoints.row(0);
         min_k = system->kpoints.row(nk/2 - 1);
     }
@@ -1558,19 +1574,14 @@ arma::rowvec ExcitonTB::findElectronHolePair(const ExcitonTB& targetExciton,
     arma::vec eigval;
     arma::cx_mat eigvec;
     int currentIndex;
-    double currentEnergy = 0, vEnergy, cEnergy, gap, prevGap;
+    double currentEnergy = 0, vEnergy, cEnergy, gap, prevGap = 0;
     double prevEnergy = currentEnergy;
-    prevGap = 0;
-    
     const int historySize = 4;
     
     while (abs(currentEnergy - energy) > threshold) {
-        
-        // Tracking state resets at the start of each bisection sweep
         std::vector<arma::cx_mat> prevEigvecs,  prevEigvecsQ;
         std::vector<arma::vec>    prevSpinZs,   prevSpinZsQ;
         std::vector<arma::vec>    prevEigvals,  prevEigvalsQ;
-        bool first = true;
         
         for (double i = 0; i <= n; i++) {
             k = min_k * (1 - i/n) + max_k * i/n;
@@ -1581,14 +1592,13 @@ arma::rowvec ExcitonTB::findElectronHolePair(const ExcitonTB& targetExciton,
                                                  eigvec, eigval, bandTrackingThreshold_);
             }
             if (bandTracking_) {
-                arma::vec spinZ(eigvec.n_cols);
-                for (int ib = 0; ib < (int)eigvec.n_cols; ib++)
-                    spinZ(ib) = targetExciton.system->expectedSpinZValue(eigvec.col(ib));
-                
+                int nb = eigvec.n_cols;
+                arma::vec sz(nb);
+                for (int ib = 0; ib < nb; ib++)
+                    sz(ib) = targetExciton.system->expectedSpinZValue(eigvec.col(ib));
                 prevEigvecs.push_back(eigvec);
-                prevSpinZs.push_back(spinZ);
+                prevSpinZs.push_back(sz);
                 prevEigvals.push_back(eigval);
-                
                 if ((int)prevEigvecs.size() > historySize) {
                     prevEigvecs.erase(prevEigvecs.begin());
                     prevSpinZs.erase(prevSpinZs.begin());
@@ -1604,33 +1614,29 @@ arma::rowvec ExcitonTB::findElectronHolePair(const ExcitonTB& targetExciton,
                 arma::cx_mat eigvecQ;
                 arma::vec    eigvalQ;
                 targetExciton.system->solveBands(kQ, eigvalQ, eigvecQ);
-                
                 if (bandTracking_ && !prevEigvecsQ.empty()) {
                     targetExciton.system->trackBands(prevEigvecsQ, prevSpinZsQ, prevEigvalsQ,
                                                      eigvecQ, eigvalQ, bandTrackingThreshold_);
                 }
                 if (bandTracking_) {
-                    arma::vec spinZQ(eigvecQ.n_cols);
-                    for (int ib = 0; ib < (int)eigvecQ.n_cols; ib++)
-                        spinZQ(ib) = targetExciton.system->expectedSpinZValue(eigvecQ.col(ib));
-                    
+                    int nb = eigvecQ.n_cols;
+                    arma::vec szQ(nb);
+                    for (int ib = 0; ib < nb; ib++)
+                        szQ(ib) = targetExciton.system->expectedSpinZValue(eigvecQ.col(ib));
                     prevEigvecsQ.push_back(eigvecQ);
-                    prevSpinZsQ.push_back(spinZQ);
+                    prevSpinZsQ.push_back(szQ);
                     prevEigvalsQ.push_back(eigvalQ);
-                    
                     if ((int)prevEigvecsQ.size() > historySize) {
                         prevEigvecsQ.erase(prevEigvecsQ.begin());
                         prevSpinZsQ.erase(prevSpinZsQ.begin());
                         prevEigvalsQ.erase(prevEigvalsQ.begin());
                     }
                 }
-                
                 eigvalBands = eigvalQ(targetExciton.bandList);
             }
             
             cEnergy = eigvalBands(1);
             gap = cEnergy - vEnergy;
-            first = false;
             
             if (!increasing && (gap <= energy) && (prevGap > energy)) {
                 currentIndex = i;

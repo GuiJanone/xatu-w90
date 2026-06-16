@@ -1,9 +1,9 @@
 #initial frequency (eV)
-1
+-14
 #frequency range (eV)
-10
+28
 #number of frequency points (integer)
-400
+2800
 #broadening parameter (eV)
 0.08d0
 #type of broadening (available: 'lorentzian', 'exponential', 'gaussian')
