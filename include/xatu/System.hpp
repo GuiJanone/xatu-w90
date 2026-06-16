@@ -62,6 +62,7 @@ class System : public Lattice {
         virtual arma::cx_mat hamiltonian(arma::rowvec k) const = 0;
         virtual arma::cx_mat overlap(arma::rowvec k) const = 0;
         virtual void solveBands(arma::rowvec&, arma::vec&, arma::cx_mat&) const = 0;
+        void solveBands(std::string kpointsfile) const;
 
         /* Modifiers */
         void addZeeman(double);    
