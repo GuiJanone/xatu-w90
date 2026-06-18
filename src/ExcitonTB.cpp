@@ -1260,7 +1260,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         
     }
     else if(this->tammdancoff_){
-        HBS_ = HBS + HBS.t();
+        HBS_ = HBS_ + HBS_.t();
     }
     std::cout << "Done" << std::endl;
 };
@@ -1326,15 +1326,11 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         if(!this->tammdancoff_){
            arma::cx_vec cx_eigval;
            arma::uvec sorted_indices;
-           
-           std::cout << "" << std::endl;
-           std::cout << "beginning generalized diagonalization" << std::endl;
-           
+
            arma::eig_gen(cx_eigval, eigvec, HBS);
            eigval = arma::real(cx_eigval);
            
            
-           std::cout << "diagonalization done " << std::endl;
            sorted_indices = arma::sort_index(eigval, "ascend");
            
            eigval = eigval(sorted_indices);

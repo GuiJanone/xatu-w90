@@ -225,15 +225,10 @@ int main(int argc, char* argv[]){
         FILE* textfile_kwf = fopen(filename_kwf.c_str(), "w");
 
         std::cout << "Writing k w.f. to file: " << filename_kwf << std::endl;
-//         int newn = n;
-//         
-//         if (encut != 0.0){
-//             newn = (int) arma::abs(eigval - encut).index_min() + 1;
-//         }
         if (!excitonConfig->excitonInfo.tammdancoff){
             int nstart = (nstates < bulkExciton.excitonbasisdim) ? bulkExciton.excitonbasisdim : 0;
-            std::cout << nstart << std::endl;
-            std::cout << nstates << std::endl;
+            // std::cout << nstart << std::endl;
+            // std::cout << nstates << std::endl;
             // int nstart = 0;
             for(int stateindex = nstart; stateindex < nstart + nstates; stateindex++){
                 if (excitonConfig->excitonInfo.submeshFactor != 1){
@@ -262,22 +257,20 @@ int main(int argc, char* argv[]){
     if(writeRSWF){
         std::string filename_rswf = output + ".rswf";
         FILE* textfile_rswf = fopen(filename_rswf.c_str(), "w");
-        arma::uvec statesToWrite = arma::regspace<arma::uvec>(0, nstates - 1);
-        std::cout << statesToWrite << std::endl;
+        int nstart = 0;
         if (!excitonConfig->excitonInfo.tammdancoff){
-            if (nstates < bulkExciton.excitonbasisdim){
-                statesToWrite = arma::regspace<arma::uvec>(bulkExciton.excitonbasisdim, bulkExciton.excitonbasisdim + nstates - 1);
-                std::cout << statesToWrite << std::endl;
-            }
-            // missing else: when nstates >= N, statesToWrite should be 0..nstates-1 
-            // which is already the default behaviour
+            nstart = (nstates < bulkExciton.excitonbasisdim) ? bulkExciton.excitonbasisdim : 0;           
         }
+        // std::cout << nstart << std::endl;
+        // std::cout << nstates << std::endl;
+        arma::uvec statesToWrite = arma::regspace<arma::uvec>(nstart, nstart + nstates - 1);
+        // std::cout << statesToWrite << std::endl;
         std::cout << "Writing real space w.f. to file: " << filename_rswf << std::endl;
         arma::rowvec holeCell = {0., 0., 0.};
         
-        for(unsigned int i = 0; i < statesToWrite.n_elem; i++){
-            std::cout << "Writing state " << i + 1 << " out of " << statesToWrite.n_elem << std::endl;
-            results->writeRealspaceAmplitude(statesToWrite(i), holeIndex, holeCell, textfile_rswf, ncellsRSWF);
+        for(unsigned int i = nstart; i < nstart + statesToWrite.n_elem; i++){
+            std::cout << "Writing state " << i - nstart + 1 << " out of " << statesToWrite.n_elem << std::endl;
+            results->writeRealspaceAmplitude(statesToWrite(i-nstart), holeIndex, holeCell, textfile_rswf, ncellsRSWF);
         }
         fclose(textfile_rswf);
     }

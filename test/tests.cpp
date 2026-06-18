@@ -291,7 +291,7 @@ TEST(hBNTest, FullDiagonalization){
     int ncell = 20;
     int nstates = 3;
 
-    std::string modelfile = "../examples/material_models/hBN.model";    
+    std::string modelfile = "../examples/material_models/hBN.model";     
     xatu::SystemConfiguration config(modelfile);
 
     xatu::ExcitonTB exciton = xatu::ExcitonTB(config, ncell, 1, 0, {1, 1, 10});
@@ -300,8 +300,8 @@ TEST(hBNTest, FullDiagonalization){
     exciton.initializeHamiltonian();
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("diag", nstates);
-
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    std::cout << results->eigval.n_elem << std::endl;
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{5.335690, 2}, 
                                                          {6.074062, 1}};
@@ -330,7 +330,7 @@ TEST(hBNTest, DavidsonDiagonalization){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("davidson", nstates);
 
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{5.335690, 2}, 
                                                          {6.074062, 1}};
@@ -359,7 +359,7 @@ TEST(hBNTest, LanczosDiagonalization){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("sparse", nstates);
 
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{5.335690, 2}, 
                                                          {6.074062, 1}};
@@ -390,7 +390,7 @@ TEST(hBNTest, ReciprocalSpaceMethod){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("diag", nstates);
 
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{6.234291, 1}, 
                                                          {6.236636, 1},
@@ -534,7 +534,7 @@ TEST(hBNTest, SpinfulSpectrumCalculation){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("diag", nstates);
 
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{5.335690, 8}, 
                                                          {6.074062, 4}};
@@ -598,7 +598,7 @@ TEST(hBNTest, DFTCalculation){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("diag", nstates);
 
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{4.442317, 1}, 
                                                          {4.442427, 1}};
@@ -677,7 +677,7 @@ TEST(hBNTest, WannierCalculation){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("diag", nstates);
 
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{2.829980, 1}, 
                                                          {2.831276, 1}};
@@ -761,7 +761,7 @@ TEST(hBNTest, AnisotropicSpectrumCalculation){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("diag", nstates);
 
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{6.428535, 1}, 
                                                          {6.456359, 1},
@@ -822,7 +822,7 @@ TEST(hBNTest, SelfEnergyContribution){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("diag", nstates);
     
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{4.978280, 2}, 
                                                          {5.790652, 1},
@@ -853,7 +853,7 @@ TEST(MoS2Test, FullDiagonalization){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("diag", nstates);
 
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{1.768783, 2}, 
                                                          {1.780562, 2}};
@@ -965,7 +965,7 @@ TEST(MoS2Test, ExcitonBands){
         exciton.BShamiltonian();
 
         auto results = exciton.diagonalize("diag", nstates);
-        auto resultingEnergies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+        auto resultingEnergies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
 
         energies.push_back(resultingEnergies[0]);
     }
@@ -1002,7 +1002,7 @@ TEST(MoS2Test, ExchangeCalculation){
     exciton.BShamiltonian();
 
     auto results = exciton.diagonalize("diag", nstates);
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{1.810464, 2}, 
                                                          {1.825740, 1},
@@ -1035,7 +1035,7 @@ TEST(MoS2Test, ReducedBZCalculation){
     exciton.BShamiltonian();
     auto results = exciton.diagonalize("diag", nstates);
 
-    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6);
+    auto energies = xatu::detectDegeneracies(results->eigval, nstates, 6, 0);
     
     std::vector<std::vector<double>> expectedEnergies = {{1.795378, 1}, 
                                                          {1.809810, 1},

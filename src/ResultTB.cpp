@@ -23,7 +23,15 @@ arma::cx_vec ResultTB::spinX(const arma::cx_vec& coefs){
     if (system->basisdim % 2 != 0){
         throw std::invalid_argument("Error: System basis must include spin.");
     }
-    
+    // std::cout << "=== spinX debug ===" << std::endl;
+    // std::cout << "coefs.n_elem: " << coefs.n_elem << std::endl;
+    // std::cout << "dimX: " << system->basisdim << std::endl;
+    // std::cout << "valenceBands: " << exciton->valenceBands.t();
+    // std::cout << "conductionBands: " << exciton->conductionBands.t();
+    // for(auto& [k,v] : exciton_->bandToIndex)
+    //     std::cout << "bandToIndex[" << k << "]=" << v << std::endl;
+    // std::cout << "eigvecKStack(0,0,0): " << exciton->eigvecKStack.slice(0).col(0).st() << std::endl;
+    // std::cout << "coefs(0..3): " << coefs.head(4).st() << std::endl;
     // Initialize Sz for both electron and hole to zero
     arma::cx_double electronSpin = 0;
     arma::cx_double holeSpin = 0;
