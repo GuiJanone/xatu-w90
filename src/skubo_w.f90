@@ -1,5 +1,5 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-subroutine skubo_w(nR,norb,norb_ex,nv_ex,nc_ex,nv,Rvec,R,B,hhop,shop,npointstotal,rkx, &
+subroutine skubo_w(nR,norb,norb_ex,nv_ex,nc_ex,nv,scissor,Rvec,R,B,hhop,shop,npointstotal,rkx, &
 rky,rkz,fk_ex,e_ex,eigval_stack,eigvec_stack)
 implicit real*8 (a-h,o-z)
 
@@ -40,6 +40,7 @@ complex*16 vme_ex
 complex*16 skubo_ex_int
 complex*16 sigma_w_sp
 complex*16 sigma_w_ex
+real*8 scissor
 
 character(100) type_broad
 character(100) file_name_sp
@@ -65,6 +66,7 @@ rkx=rkx*0.52917721067121d0
 rky=rky*0.52917721067121d0
 rkz=rkz*0.52917721067121d0
 e_ex=e_ex/27.211385d0
+scissor=scissor/27.211385d0
 eigval_stack=eigval_stack/27.211385d0
 
 ! volume formula depends on the dimensionality of the unit cell 
@@ -140,7 +142,7 @@ if (do_kubo) then
   ! Obtain SP Kubo
   do ibz=1,npointstotal
     e(:) = eigval_stack(:, ibz)
-    call get_kubo_intens(nv_ex,npointstotal,vcell,nbands,e,vme(ibz, :, :, :),nw,wp,sigma_w_sp,eta)
+    call get_kubo_intens(nv_ex,npointstotal,vcell,nbands,e,vme(ibz, :, :, :),nw,wp,sigma_w_sp,eta,scissor)
   end do
 
   !fill kubo oscillators of EXCITONS
@@ -420,7 +422,7 @@ subroutine exciton_oscillator_strength(nR,norb,norb_ex,nv_ex,nc_ex,nv,Rvec,R,B,h
     hhop,rhop,sderhop,hderhop,sderkernel,hderkernel,akernel,pgaugekernel)
     !velocity matrix elements
     call get_eigen_vme(norb,nbands,skernel,hkernel,akernel,hderkernel, &
-    pgaugekernel,hk_ev,e,pgauge,vjseudoa,vjseudob,vme(ibz, :, :, :),NORM2(rkx),NORM2(rky),NORM2(rkz))
+    pgaugekernel,hk_ev,e,pgauge,vjseudoa,vjseudob,vme(ibz, :, :, :),NORM2(rkx),NORM2(rky),NORM2(rkz),scissor)
 
     !fill V_N
     !!$OMP critical
@@ -684,7 +686,7 @@ end
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 subroutine get_eigen_vme(norb,nbands,skernel, &
 hkernel,akernel,hderkernel,pgaugekernel, &
-hk_ev,e,pgauge,vjseudoa,vjseudob,vme,nrkx,nrky,nrkz)
+hk_ev,e,pgauge,vjseudoa,vjseudob,vme,nrkx,nrky,nrkz,scissor)
 
 implicit real*8 (a-h,o-z)
 
@@ -703,6 +705,7 @@ complex*16 hk_ev,vjseudoa,vjseudob,vme,pgaugekernel,pgauge
 real*8 nrkx
 real*8 nrky
 real*8 nrkz
+real*8 scissor
 
 complex*16 amu,amup
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -728,7 +731,7 @@ do nnp=1,nn
       
       if ( ( nrkx == 0 .and. nj == 1) .or. ( nrky == 0 .and. nj == 2) .or. ( nrkz == 0 .and. nj == 3) )then
         vjseudoa(nj,nn,nnp)=vjseudoa(nj,nn,nnp)+ &
-        conjg(amu)*amup*hderkernel(nj,ialpha,ialphap)*(e(nnp)-e(nn))
+        conjg(amu)*amup*hderkernel(nj,ialpha,ialphap)*(scissor+e(nnp)-e(nn))
       else
         vjseudoa(nj,nn,nnp)=vjseudoa(nj,nn,nnp)+ &
         conjg(amu)*amup*hderkernel(nj,ialpha,ialphap)
@@ -762,7 +765,7 @@ return
 end
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-subroutine get_kubo_intens(nv,npointstotal,vcell,nbands,e,vme,nw,wp,sigma_w_sp,eta)
+subroutine get_kubo_intens(nv,npointstotal,vcell,nbands,e,vme,nw,wp,sigma_w_sp,eta,scissor)
 implicit real*8 (a-h,o-z)
 
 dimension vme(3,nbands,nbands)
@@ -770,6 +773,7 @@ dimension wp(nw),sigma_w_sp(3,3,nw)
 dimension e(nbands)
 
 complex*16 vme,skubo,sigma_w_sp
+real*8 scissor
 pi=acos(-1.0d0)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 do iw=1,nw
@@ -794,7 +798,7 @@ do iw=1,nw
         factor1=(fnn-fnnp)/(e(nn)-e(nnp))
       end if
 	  !lorentzian
-      delta_nnp=1.0d0/pi*aimag(1.0d0/(wp(iw)-e(nn)+e(nnp)-complex(0.0d0,eta)))
+      delta_nnp=1.0d0/pi*aimag(1.0d0/(wp(iw)-e(nn)+e(nnp)-scissor-complex(0.0d0,eta)))
 	  !exponential
      !delta_nnp=1.0d0/eta*1.0d0/sqrt(2.0d0*pi)*exp(-0.5d0/(eta**2)*(wp(iw)-e(nn)+e(nnp))**2)
 
