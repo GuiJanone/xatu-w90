@@ -214,7 +214,7 @@ void Lattice::shiftBZ(const arma::rowvec& shift){
 		std::cout << "To call this method kpoints must be initiallized first" << std::endl;
 		return;
 	}
-	for(int i = 0; i < kpoints.n_rows; i++){
+	for(arma::uword i = 0; i < kpoints.n_rows; i++){
 		kpoints_.row(i) += shift;
 	}
 }

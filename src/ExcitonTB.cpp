@@ -828,7 +828,7 @@ void ExcitonTB::initializeResultsH0() {
     int nTotalBands = bandList.n_elem;
     double radius = arma::norm(system->bravaisLattice.row(0)) * cutoff_;
     arma::mat cells = system_->truncateSupercell(ncell, radius);
-    int nk = system->nk;
+    arma::uword nk = system->nk;
     int natoms = system->natoms;
     int basisdim = system->basisdim;
     
@@ -852,7 +852,7 @@ void ExcitonTB::initializeResultsH0() {
     system_->calculateInverseReciprocalMatrix();
     std::cout << "Diagonalizing H0 for all k points... " << std::flush;
     
-    for (int i = 0; i < nk; i++) {
+    for (arma::uword i = 0; i < nk; i++) {
         arma::rowvec k = system->kpoints.row(i);
         system->solveBands(k, auxEigVal, auxEigvec);
         
@@ -1131,15 +1131,15 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         uint64_t i = basisDimBSE - 1 - m;
         uint64_t j = basisDimBSE - 1 - ii + m*(m+1)/2;
         
-        uint32_t k_index = basisStates(i, 2);
+        uint64_t k_index = basisStates(i, 2);
         int v = bandToIndex[basisStates(i, 0)];
         int c = bandToIndex[basisStates(i, 1)];
-        uint32_t kQ_index = k_index;
+        uint64_t kQ_index = k_index;
         
-        uint32_t k2_index = basisStates(j, 2);
+        uint64_t k2_index = basisStates(j, 2);
         int v2 = bandToIndex[basisStates(j, 0)];
         int c2 = bandToIndex[basisStates(j, 1)];
-        uint32_t k2Q_index = k2_index;
+        uint64_t k2Q_index = k2_index;
         // Using the atomic gauge
         if(gauge == "atomic"){
             coefsK = system_->latticeToAtomicGauge(eigvecKStack.slice(k_index).col(v), system->kpoints.row(k_index));
@@ -1157,7 +1157,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         std::complex<double> D, X, selfcond, selfval = 0.0;
         std::complex<double> Dcoup, Dares, Xcoup, Xares = 0.0;
         if (mode == "realspace"){
-            uint32_t effective_k_index = system_->findEquivalentPointBZ(system->kpoints.row(k2_index) - system->kpoints.row(k_index), ncell);
+            uint64_t effective_k_index = system_->findEquivalentPointBZ(system->kpoints.row(k2_index) - system->kpoints.row(k_index), ncell);
             arma::cx_mat motifFT = ftMotifStack.slice(effective_k_index);
             // Direct and exchange terms for resonant block of BSE matrix
             D = realSpaceInteractionTerm(coefsKQ, coefsK2, coefsK2Q, coefsK, motifFT);
@@ -1276,7 +1276,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
 void ExcitonTB::writeBandSelfEnergy(FILE* file){
     arma::cx_vec coefsK;
     arma::cx_mat selfen = arma::zeros<cx_mat>(system->nk, (int)bands.n_elem);
-    for (uint32_t k_index = 0; k_index < system->nk; k_index++){
+    for (uint64_t k_index = 0; k_index < system->nk; k_index++){
         arma::rowvec kpoint = system->kpoints.row(k_index);
         fprintf(file, "%11.7lf\t%11.7lf\t%11.7lf\t", kpoint(0), kpoint(1), kpoint(2));
         
@@ -1481,7 +1481,7 @@ double ExcitonTB::fermiGoldenRule(const ExcitonTB& targetExciton,
 
     // -------- Main loop (W initialization) --------
     #pragma omp parallel for schedule(static, 1) collapse(2)
-    for (int i = 0; i < finalBasis.n_rows; i++){
+    for (arma::uword i = 0; i < finalBasis.n_rows; i++){
         for (int j = 0; j < initialBasis.n_rows; j++){
 
             arma::cx_vec coefsK, coefsK2, coefsKQ, coefsK2Q;

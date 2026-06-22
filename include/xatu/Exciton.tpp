@@ -150,6 +150,7 @@ arma::imat Exciton<T>::createBasis(const arma::ivec& conductionBands,
                                 const arma::ivec& valenceBands){
 
     arma::imat states = arma::zeros<arma::imat>(excitonbasisdim, 3);
+    arma::irowvec state;
     int it = 0;
     for (uint32_t i = 0; i < system->nk; i++){
         for (int k = 0; k < (int)conductionBands.n_elem; k++){

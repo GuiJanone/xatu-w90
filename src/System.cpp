@@ -135,7 +135,7 @@ void System::addZeeman(double amplitude){
 	arma::cx_mat zeeman_matrix = arma::diagmat<arma::cx_mat>(arma::kron(arma::ones<arma::cx_vec>(basisdim/2), zeeman_values));
 
 	// Identify hamiltonian slice for R=0
-	int idx;
+	int idx = 0;
 	for (unsigned int i = 0; i < unitCellList.n_rows; i++){
 		if (arma::norm(unitCellList.row(i)) < 1E-5){
 			arma::cout << unitCellList.row(i) << arma::endl;

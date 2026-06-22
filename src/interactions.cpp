@@ -141,7 +141,7 @@ std::complex<double> motifFourierTransform(const arma::rowvec& firstAtom, const 
     std::complex<double> imag(0,1);
     std::complex<double> Vk = 0.0;
 
-    for(int n = 0; n < cells.n_rows; n++){
+    for(arma::uword n = 0; n < cells.n_rows; n++){
         arma::rowvec cell = cells.row(n);
         double module = arma::norm(cell + firstAtom - secondAtom);
         Vk += keldysh(module, r0, eps_s, eps_m, cutoff, a)*std::exp(imag*arma::dot(k, cell));

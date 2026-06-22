@@ -28,8 +28,8 @@ double Result<T>::kineticEnergy(int stateindex){
     arma::vec HK = arma::zeros(exciton->excitonbasisdim);
 
     for (uint32_t n = 0; n < exciton->excitonbasisdim; n++){
-        int v = exciton_->bandToIndex[exciton->basisStates(n, 0)];
-        int c = exciton_->bandToIndex[exciton->basisStates(n, 1)];
+        uint32_t v = exciton_->bandToIndex[exciton->basisStates(n, 0)];
+        uint32_t c = exciton_->bandToIndex[exciton->basisStates(n, 1)];
         uint32_t k_index = exciton->basisStates(n, 2);
         uint32_t kQ_index = k_index;
 
@@ -85,7 +85,7 @@ double Result<T>::bindingEnergy(int stateindex, double gap){
 template <typename T>
 double Result<T>::determineGap(){
     int stateindex = 0; // Ground state
-    int kIndex = findExcitonPeak(stateindex);
+    uint64_t kIndex = findExcitonPeak(stateindex);
     int valence = exciton->bandToIndex[exciton->valenceBands.max()];
     int conduction = exciton->bandToIndex[exciton->conductionBands.min()];
 
@@ -111,13 +111,13 @@ double Result<T>::ftExcitonEnvelope(int stateindex, const arma::rowvec& electron
     int kBlock = 0;
     int kBlockEnd = 0;
 
-    int dimTB = system->basisdim;
-    int nk = system->nk;
+    uint64_t dimTB = system->basisdim;
+    arma::uword nk = system->nk;
     arma::cx_double ft;
     std::complex<double> imag(0,1);
     // Matrix dimension is: #orbitals*#motif*#orbitals
 
-    for (int i = 0; i < nk; i++){
+    for (arma::uword i = 0; i < nk; i++){
 
         kBlockEnd += (exciton->excitonbasisdim/nk);
         
@@ -163,7 +163,7 @@ template <typename T>
 void Result<T>::writeReciprocalAmplitude(const arma::cx_vec& statecoefs, FILE* textfile){
     fprintf(textfile, "kx\tky\tkz\tProb.\n");
     int nbandsCombinations = exciton->conductionBands.n_elem * exciton->valenceBands.n_elem;
-    for (int i = 0; i < system->kpoints.n_rows; i++){
+    for (arma::uword i = 0; i < system->kpoints.n_rows; i++){
         double coef = 0;
         for(int nband = 0; nband < nbandsCombinations; nband++){
             coef += abs(statecoefs(nbandsCombinations*i + nband))*
@@ -201,7 +201,7 @@ void Result<T>::writeExtendedReciprocalAmplitude(const arma::cx_vec& statecoefs,
     int nbandsCombinations = exciton->conductionBands.n_elem * exciton->valenceBands.n_elem;
     double boxLimit = boundingBoxBZ();
 
-    for (int i = 0; i < system->kpoints.n_rows; i++){
+    for (arma::uword i = 0; i < system->kpoints.n_rows; i++){
         double coef = 0;
         for(int nband = 0; nband < nbandsCombinations; nband++){
             coef += abs(statecoefs(nbandsCombinations*i + nband))*
@@ -253,7 +253,7 @@ void Result<T>::writePhase(const arma::cx_vec& statecoefs, FILE* textfile){
     fprintf(textfile, "kx\tky\tkz\tMod.\tArg.\n");
     int nbandsCombinations = exciton->conductionBands.n_elem * exciton->valenceBands.n_elem;
     double module, phase;
-    for (int i = 0; i < system->kpoints.n_rows; i++){
+    for (arma::uword i = 0; i < system->kpoints.n_rows; i++){
         module = abs(statecoefs(i));
         phase = arg(statecoefs(i));
         fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8lf\t%11.8lf\n", 
@@ -293,7 +293,7 @@ void Result<T>::writeExtendedPhase(const arma::cx_vec& statecoefs, FILE* textfil
     int nbandsCombinations = exciton->conductionBands.n_elem * exciton->valenceBands.n_elem;
     double boxLimit = boundingBoxBZ();
     double module, phase;
-    for (int i = 0; i < system->kpoints.n_rows; i++){
+    for (arma::uword i = 0; i < system->kpoints.n_rows; i++){
         module = abs(statecoefs(i));
         module /= arma::norm(system->kpoints.row(1) - system->kpoints.row(0)); // L2 norm instead of l2
 
@@ -349,7 +349,7 @@ void Result<T>::writeRealspaceAmplitude(const arma::cx_vec& statecoefs, int hole
     double radius = arma::norm(system->bravaisLattice.row(0)) * ncells;
     arma::mat cellCombinations = system->truncateSupercell(exciton->ncell, radius);
     arma::vec coefs = arma::zeros(cellCombinations.n_rows*system->motif.n_rows);
-    int it = 0;
+    arma::uword it = 0;
 
     // Compute probabilities
     for(unsigned int cellIndex = 0; cellIndex < cellCombinations.n_rows; cellIndex++){
@@ -402,10 +402,10 @@ void Result<T>::writeRealspaceAmplitude(int stateindex, int holeIndex,
  */
 template <typename T>
 void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
-    int newn = n;
+    uint64_t newn = n;
     
     if (encut != 0.0){
-        newn = (int) arma::abs(eigval - encut).index_min() + 1;
+        newn = (uint64_t) arma::abs(eigval - encut).index_min() + 1;
     }
     if (!exciton->TDA){
         if(newn > 2*exciton->excitonbasisdim || newn < 0){
@@ -420,13 +420,13 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
         fprintf(textfile, "%d\n", 2*exciton->excitonbasisdim);
         
         // second line: how many eigenvalues will follow
-        int maxEigval = (newn == 0) ? 2*exciton->excitonbasisdim : newn;
-        int minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0; 
+        uint64_t maxEigval = (newn == 0) ? 2*exciton->excitonbasisdim : newn;
+        uint64_t minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0; 
         // int minState = 0; 
         fprintf(textfile, "%d\n", maxEigval);
         
         // then one eigenvalue per line
-        for(int i = minState; i < minState+maxEigval; ++i){
+        for(uint64_t i = minState; i < minState+maxEigval; ++i){
             fprintf(textfile, " %11.7lf\n", eigval(i));
         }
     }
@@ -443,11 +443,11 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
         fprintf(textfile, "%d\n", exciton->excitonbasisdim);
         
         // second line: how many eigenvalues will follow
-        int maxEigval = (newn == 0) ? exciton->excitonbasisdim : newn;
+        uint64_t maxEigval = (newn == 0) ? exciton->excitonbasisdim : newn;
         fprintf(textfile, "%d\n", maxEigval);
         
         // then one eigenvalue per line
-        for(int i = 0; i < maxEigval; ++i){
+        for(uint64_t i = 0; i < maxEigval; ++i){
             fprintf(textfile, " %11.7lf\n", eigval(i));
         }
     }
@@ -461,10 +461,10 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
  */
 template <typename T>
 void Result<T>::writeStates(FILE* textfile, int n, double encut){
-    int newn = n;
+    uint64_t newn = n;
     
     if (encut != 0.0){
-        newn = (int) arma::abs(eigval - encut).index_min() + 1;
+        newn = (uint64_t) arma::abs(eigval - encut).index_min() + 1;
     }
     if (!exciton->TDA){
         if(newn > 2*exciton->excitonbasisdim || newn < 0){
@@ -477,21 +477,21 @@ void Result<T>::writeStates(FILE* textfile, int n, double encut){
         }
         // First write basis
         fprintf(textfile, "%d\n", exciton->excitonbasisdim);
-        for(unsigned int i = 0; i <  exciton->excitonbasisdim; i++){
+        for(uint64_t i = 0; i <  exciton->excitonbasisdim; i++){
             arma::irowvec state = exciton->basisStates.row(i);
             arma::rowvec kpoint = system->kpoints.row(state(2));
-            int v = state(0);
-            int c = state(1);
+            uint64_t v = state(0);
+            uint64_t c = state(1);
             fprintf(textfile, "%11.7lf\t%11.7lf\t%11.7lf\t%d\t%d\n", 
                     kpoint(0), kpoint(1), kpoint(2), v, c);
         }
         
-        int nstates = (newn == 0) ?  2*exciton->excitonbasisdim : newn;
-        int minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0;
+        uint64_t nstates = (newn == 0) ?  2*exciton->excitonbasisdim : newn;
+        uint64_t minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0;
         // int minState = 0; 
         
-        for(unsigned int i = minState; i < minState + nstates; i++){
-            for(unsigned int j = 0; j <  2*exciton->excitonbasisdim; j++){
+        for(uint64_t i = minState; i < minState + nstates; i++){
+            for(uint64_t j = 0; j <  2*exciton->excitonbasisdim; j++){
                 fprintf(textfile, "%11.7lf\t%11.7lf\t", 
                         real(eigvec.col(i)(j)), imag(eigvec.col(i)(j)));
             }
@@ -509,18 +509,18 @@ void Result<T>::writeStates(FILE* textfile, int n, double encut){
         }
         // First write basis
         fprintf(textfile, "%d\n", exciton->excitonbasisdim);
-        for(unsigned int i = 0; i < exciton->excitonbasisdim; i++){
+        for(uint64_t i = 0; i < exciton->excitonbasisdim; i++){
             arma::irowvec state = exciton->basisStates.row(i);
             arma::rowvec kpoint = system->kpoints.row(state(2));
-            int v = state(0);
-            int c = state(1);
+            uint64_t v = state(0);
+            uint64_t c = state(1);
             fprintf(textfile, "%11.7lf\t%11.7lf\t%11.7lf\t%d\t%d\n", 
                     kpoint(0), kpoint(1), kpoint(2), v, c);
         }
         
-        int nstates = (newn == 0) ? exciton->excitonbasisdim : newn;  
-        for(unsigned int i = 0; i < nstates; i++){
-            for(unsigned int j = 0; j < exciton->excitonbasisdim; j++){
+        uint64_t nstates = (newn == 0) ? exciton->excitonbasisdim : newn;  
+        for(uint64_t i = 0; i < nstates; i++){
+            for(uint64_t j = 0; j < exciton->excitonbasisdim; j++){
                 fprintf(textfile, "%11.7lf\t%11.7lf\t", 
                         real(eigvec.col(i)(j)), imag(eigvec.col(i)(j)));
             }
@@ -537,10 +537,10 @@ void Result<T>::writeStates(FILE* textfile, int n, double encut){
  */
 template <typename T>
 void Result<T>::writeSpin(int n, double encut, FILE* textfile){
-    int newn = n;
+    uint64_t newn = n;
     
     if (encut != 0.0){
-        newn = (int) arma::abs(eigval - encut).index_min() + 1;
+        newn = (uint64_t) arma::abs(eigval - encut).index_min() + 1;
     }
     if (!exciton->TDA){
         if(newn > 2*exciton->excitonbasisdim || newn < 0){
@@ -551,11 +551,11 @@ void Result<T>::writeSpin(int n, double encut, FILE* textfile){
                 throw std::invalid_argument("Optional argument n must be a positive integer equal or below 2*basisdim");
             }
         }
-        int maxState = (newn == 0) ? 2*exciton->excitonbasisdim : newn;  
-        int minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0; 
+        uint64_t maxState = (newn == 0) ? 2*exciton->excitonbasisdim : newn;  
+        uint64_t minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0; 
         // int minState = 0; 
         fprintf(textfile, "n\tSt\tSe\tSh\n");
-        for(unsigned int i = minState; i < minState+maxState; i++){
+        for(uint64_t i = minState; i < minState+maxState; i++){
             auto spin = spinX(i);
             fprintf(textfile, "%d\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
         }
@@ -569,9 +569,9 @@ void Result<T>::writeSpin(int n, double encut, FILE* textfile){
                 throw std::invalid_argument("Optional argument n must be a positive integer equal or below basisdim");
             }
         }
-        int maxState = (newn == 0) ? exciton->excitonbasisdim : newn;  
+        uint64_t maxState = (newn == 0) ? exciton->excitonbasisdim : newn;  
         fprintf(textfile, "n\tSt\tSe\tSh\n");
-        for(unsigned int i = 0; i < maxState; i++){
+        for(uint64_t i = 0; i < maxState; i++){
             auto spin = spinX(i);
             fprintf(textfile, "%d\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
         }
@@ -590,7 +590,7 @@ void Result<T>::writeSpin(int n, double encut, FILE* textfile){
  */ 
 template <typename T>
 int Result<T>::findExcitonPeak(int stateindex){
-    int index = eigvec.col(stateindex).index_max();
+    uint64_t index = eigvec.col(stateindex).index_max();
     int bandCombinations = exciton->valenceBands.n_elem*exciton->conductionBands.n_elem;
     index = (int)index/bandCombinations;
     return index;
