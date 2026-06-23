@@ -13,7 +13,7 @@ extern "C" {
                   double* rky, double* rkz, std::complex<double>* fk_ex, double* e_ex, 
                   double* eigval_stack, std::complex<double>* eigvec_stack);
 
-    void exciton_oscillator_strength_(int* nR, int* norb, int* norb_ex, int* nv, int* nc, int* filling, 
+    void exciton_oscillator_strength_(int* nR, arma::uword* norb, arma::uword* norb_ex, int* nv, int* nc, int* filling, 
                   double* Rvec, double* bravaisLattice, double* motif, 
                   std::complex<double>* hhop, double* shop, int* nk, double* rkx, 
                   double* rky, double* rkz, std::complex<double>* fk_ex, double* e_ex, 

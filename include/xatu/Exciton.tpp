@@ -1,5 +1,6 @@
 #pragma once
 #include <math.h>
+#include <cassert>
 #include <iomanip>
 #include <armadillo>
 #include "xatu/Exciton.hpp"
@@ -31,7 +32,7 @@ template <typename T>
 void Exciton<T>::setBands(const arma::ivec& bands){
     bands_ = bands;
     std::vector<arma::s64> valence, conduction;
-    for(int i = 0; i < bands.n_elem; i++){
+    for(arma::uword i = 0; i < bands.n_elem; i++){
         if (bands(i) <= 0){
             valence.push_back(bands(i) + system->fermiLevel);
         }
@@ -150,19 +151,22 @@ arma::imat Exciton<T>::createBasis(const arma::ivec& conductionBands,
                                 const arma::ivec& valenceBands){
 
     arma::imat states = arma::zeros<arma::imat>(excitonbasisdim, 3);
-    arma::irowvec state;
-    int it = 0;
-    for (uint32_t i = 0; i < system->nk; i++){
+    // arma::irowvec state;
+    arma::uword it = 0;
+    for (arma::uword i = 0; i < system->nk; i++){
         for (int k = 0; k < (int)conductionBands.n_elem; k++){
             for (int j = 0; j < (int)valenceBands.n_elem; j++){
 
-                arma::irowvec state = { valenceBands(j), conductionBands(k), i };
-                states.row(it) = state;
+                // arma::irowvec state = { valenceBands(j), conductionBands(k), i };
+                // states.row(it) = state;
+                states(it, 0) = valenceBands(j);
+                states(it, 1) = conductionBands(k);
+                states(it, 2) = static_cast<arma::sword>(i);
                 it++;
             };
         };
     };
-
+    assert(it == excitonbasisdim);
     basisStates_ = states;
 
     return states;
@@ -197,7 +201,7 @@ arma::cx_mat Exciton<T>::fixGlobalPhase(arma::cx_mat& coefs){
 
     arma::cx_rowvec sums = arma::sum(coefs);
     std::complex<double> imag(0, 1);
-    for(int j = 0; j < sums.n_elem; j++){
+    for(arma::uword j = 0; j < sums.n_elem; j++){
         double phase = arg(sums(j));
         coefs.col(j) *= exp(-imag*phase);
     }
@@ -213,7 +217,7 @@ template <typename T>
 void Exciton<T>::generateBandDictionary(){
 
     std::map<int, int> bandToIndex;
-    for(int i = 0; i < bandList.n_elem; i++){
+    for(arma::uword i = 0; i < bandList.n_elem; i++){
         bandToIndex[bandList(i)] = i;
     };
 
@@ -228,15 +232,11 @@ template <typename T>
 void Exciton<T>::printInformation(){
     std::cout << std::left << std::setw(30) << "Number of cells: " << ncell << std::endl;
     std::cout << std::left << std::setw(30) << "Valence bands:";
-    for (int i = 0; i < valenceBands.n_elem; i++){
-        std::cout << valenceBands(i) << "\t";
-    }
+    for (const auto& v : valenceBands)   std::cout << v << "\t";
     std::cout << std::endl;
 
     std::cout << std::left << std::setw(30) << "Conduction bands: ";
-    for (int i = 0; i < conductionBands.n_elem; i++){
-        std::cout << conductionBands(i) << "\t";
-    }
+    for (const auto& c : conductionBands) std::cout << c << "\t";
     std::cout << "\n" << std::endl;
 
     if(exchange){

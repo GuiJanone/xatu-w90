@@ -1,4 +1,5 @@
 #include <math.h>
+#include <sys/resource.h>
 #include <iomanip>
 #include "xatu/ExcitonTB.hpp"
 #include "xatu/utils.hpp"
@@ -1079,6 +1080,7 @@ std::complex<double> ExcitonTB::selfenergyTerm(bool Qtoggle, uint32_t k_index, u
             }
             return self;
         }
+        return self;
     }
     else{
         return self;
@@ -1308,19 +1310,27 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         throw std::invalid_argument("diagonalizeRaw(): BSE Hamiltonian is not initialized.");
     }
 
-    std::cout << "Solving BSE with ";
     arma::vec eigval;
     arma::cx_mat eigvec;
 
     int64_t basisDimBSE = this->basisStates.n_rows;
+    double estimated_gb = (!this->tammdancoff_) ? 3.0 * 2*basisDimBSE * 2*basisDimBSE * 8.0 / (1<<30) : 3.0 * basisDimBSE * basisDimBSE * 8.0 / (1<<30);
     
-    // arma::mat sz;
-    // arma::cx_mat iden;
-    // arma::cx_mat geneig;
-    // iden = arma::eye<cx_mat>(basisDimBSE, basisDimBSE);
-    // sz = arma::mat{{1,0},{0,-1}};
-    // geneig = kron(sz,iden);
+    struct rlimit rl;
     
+    getrlimit(RLIMIT_AS, &rl);
+    double ulimit_gb = (rl.rlim_cur == RLIM_INFINITY) ? 1e6 : (double)rl.rlim_cur / (1ULL << 30);
+        
+    std::cout << "Estimated memory for diagonalization: " 
+    << std::fixed << std::setprecision(1) << estimated_gb << " GB" << std::endl;
+    
+    if (method == "diag" && estimated_gb > 0.8 * ulimit_gb){
+        std::cerr << "Warning: estimated memory (" << estimated_gb 
+        << " GB) approaches process limit. Switching to Davidson." << std::endl;
+        method = "davidson";
+    }
+    
+    std::cout << "Solving BSE with ";
     if (method == "diag"){
         std::cout << "exact diagonalization... " << std::flush;
         if(!this->tammdancoff_){
@@ -1556,7 +1566,7 @@ arma::rowvec ExcitonTB::findElectronHolePair(const ExcitonTB& targetExciton,
                                              double energy, std::string side, bool increasing) {
     double n = 10;
     arma::rowvec min_k, max_k, kmin, kmax;
-    int nk = system->nk;
+    arma::uword nk = system->nk;
     if (side == "right") {
         min_k = system->kpoints.row(nk/2);
         max_k = -system->kpoints.row(0);
@@ -1569,7 +1579,7 @@ arma::rowvec ExcitonTB::findElectronHolePair(const ExcitonTB& targetExciton,
     double threshold = 1E-8;
     arma::vec eigval;
     arma::cx_mat eigvec;
-    int currentIndex;
+    int currentIndex = 0;
     double currentEnergy = 0, vEnergy, cEnergy, gap, prevGap = 0;
     double prevEnergy = currentEnergy;
     const int historySize = 4;

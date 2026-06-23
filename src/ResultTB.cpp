@@ -255,8 +255,8 @@ arma::cx_vec ResultTB::velocitySingleParticle(int fIndex, int sIndex, int kIndex
 arma::cx_mat ResultTB::excitonOscillatorStrength(){
 
     int nR = system->unitCellList.n_rows;
-    int norb = system->basisdim;
-    int norb_ex = (exciton->TDA) ? exciton->excitonbasisdim : 2*exciton->excitonbasisdim;
+    arma::uword norb = system->basisdim;
+    arma::uword norb_ex = (exciton->TDA) ? exciton->excitonbasisdim : 2*exciton->excitonbasisdim;
     int filling = system->filling;
     int nv = exciton->valenceBands.n_elem;
     int nc = exciton->conductionBands.n_elem;
@@ -267,7 +267,7 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
     arma::mat Rvec = system->unitCellList;
     // Extend bravais lattice to 3x3 matrix
     arma::mat R = arma::zeros(3, 3);
-    for (int i = 0; i < system->bravaisLattice.n_rows; i++){
+    for (arma::uword i = 0; i < system->bravaisLattice.n_rows; i++){
         R.row(i) = system->bravaisLattice.row(i);
     }
 
@@ -549,7 +549,7 @@ void ResultTB::writeAbsorptionSpectrum(){
     arma::mat eigval_sp = exciton->eigvalKStack;
     arma::cx_cube eigvec_sp = exciton->eigvecKStack;
 
-    std::cout<< scissor << std::endl;
+    // std::cout<< scissor << std::endl;
     skubo_w_(&nR, &norb, &norb_ex, &nv, &nc, &filling, &scissor,
              Rvec.memptr(), R.memptr(), extendedMotifFull.memptr(), hhop.memptr(), shop.memptr(), &nk, rkx.memptr(),
              rky.memptr(), rkz.memptr(), m_eigvec.memptr(), m_eigval.memptr(), eigval_sp.memptr(), eigvec_sp.memptr());

@@ -3,6 +3,7 @@
 
 #include "xatu/Result.hpp"
 #include <complex>
+#include <cinttypes>
 
 namespace xatu {
 
@@ -27,11 +28,11 @@ double Result<T>::kineticEnergy(int stateindex){
     arma::cx_vec coefs = eigvec.col(stateindex);
     arma::vec HK = arma::zeros(exciton->excitonbasisdim);
 
-    for (uint32_t n = 0; n < exciton->excitonbasisdim; n++){
+    for (uint64_t n = 0; n < exciton->excitonbasisdim; n++){
         uint32_t v = exciton_->bandToIndex[exciton->basisStates(n, 0)];
         uint32_t c = exciton_->bandToIndex[exciton->basisStates(n, 1)];
-        uint32_t k_index = exciton->basisStates(n, 2);
-        uint32_t kQ_index = k_index;
+        uint64_t k_index = exciton->basisStates(n, 2);
+        uint64_t kQ_index = k_index;
 
         HK(n) = exciton->eigvalKQStack.col(kQ_index)(c) - exciton->eigvalKStack.col(k_index)(v);
     }
@@ -417,13 +418,13 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
             }
         }
         // first line: number of cells
-        fprintf(textfile, "%d\n", 2*exciton->excitonbasisdim);
+        fprintf(textfile, "%u\n", 2*exciton->excitonbasisdim);
         
         // second line: how many eigenvalues will follow
         uint64_t maxEigval = (newn == 0) ? 2*exciton->excitonbasisdim : newn;
         uint64_t minState = (newn < exciton->excitonbasisdim && newn != 0) ? exciton->excitonbasisdim : 0; 
         // int minState = 0; 
-        fprintf(textfile, "%d\n", maxEigval);
+        fprintf(textfile,  "%" PRIu64 "\n", maxEigval);
         
         // then one eigenvalue per line
         for(uint64_t i = minState; i < minState+maxEigval; ++i){
@@ -440,11 +441,11 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
             }
         }
         // first line: number of cells
-        fprintf(textfile, "%d\n", exciton->excitonbasisdim);
+        fprintf(textfile, "%u\n", exciton->excitonbasisdim);
         
         // second line: how many eigenvalues will follow
         uint64_t maxEigval = (newn == 0) ? exciton->excitonbasisdim : newn;
-        fprintf(textfile, "%d\n", maxEigval);
+        fprintf(textfile,  "%" PRIu64 "\n", maxEigval);
         
         // then one eigenvalue per line
         for(uint64_t i = 0; i < maxEigval; ++i){
@@ -480,8 +481,8 @@ void Result<T>::writeStates(FILE* textfile, int n, double encut){
         for(uint64_t i = 0; i <  exciton->excitonbasisdim; i++){
             arma::irowvec state = exciton->basisStates.row(i);
             arma::rowvec kpoint = system->kpoints.row(state(2));
-            uint64_t v = state(0);
-            uint64_t c = state(1);
+            int v = state(0);
+            int c = state(1);
             fprintf(textfile, "%11.7lf\t%11.7lf\t%11.7lf\t%d\t%d\n", 
                     kpoint(0), kpoint(1), kpoint(2), v, c);
         }
@@ -512,8 +513,8 @@ void Result<T>::writeStates(FILE* textfile, int n, double encut){
         for(uint64_t i = 0; i < exciton->excitonbasisdim; i++){
             arma::irowvec state = exciton->basisStates.row(i);
             arma::rowvec kpoint = system->kpoints.row(state(2));
-            uint64_t v = state(0);
-            uint64_t c = state(1);
+            int v = state(0);
+            int c = state(1);
             fprintf(textfile, "%11.7lf\t%11.7lf\t%11.7lf\t%d\t%d\n", 
                     kpoint(0), kpoint(1), kpoint(2), v, c);
         }
@@ -557,7 +558,7 @@ void Result<T>::writeSpin(int n, double encut, FILE* textfile){
         fprintf(textfile, "n\tSt\tSe\tSh\n");
         for(uint64_t i = minState; i < minState+maxState; i++){
             auto spin = spinX(i);
-            fprintf(textfile, "%d\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
+            fprintf(textfile, "%ju\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
         }
     }
     else{
@@ -573,7 +574,7 @@ void Result<T>::writeSpin(int n, double encut, FILE* textfile){
         fprintf(textfile, "n\tSt\tSe\tSh\n");
         for(uint64_t i = 0; i < maxState; i++){
             auto spin = spinX(i);
-            fprintf(textfile, "%d\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
+            fprintf(textfile, "%ju\t%11.7lf\t%11.7lf\t%11.7lf\n", i, real(spin(0)), real(spin(1)), real(spin(2)));
         }
     }
 
