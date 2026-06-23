@@ -1316,18 +1316,15 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     int64_t basisDimBSE = this->basisStates.n_rows;
     double estimated_gb = (!this->tammdancoff_) ? 3.0 * 2*basisDimBSE * 2*basisDimBSE * 8.0 / (1<<30) : 3.0 * basisDimBSE * basisDimBSE * 8.0 / (1<<30);
     
-    struct rlimit rl;
+    // Hard limit from Armadillo's internal 2^31 element check
+    // N*N must fit, so N_max = floor(sqrt(2^31)) = 46340
+    const int64_t ARMA_HARD_LIMIT = 46340;
     
-    getrlimit(RLIMIT_AS, &rl);
-    double ulimit_gb = (rl.rlim_cur == RLIM_INFINITY) ? 1e6 : (double)rl.rlim_cur / (1ULL << 30);
-        
-    std::cout << "Estimated memory for diagonalization: " 
-    << std::fixed << std::setprecision(1) << estimated_gb << " GB" << std::endl;
-    
-    if (method == "diag" && estimated_gb > 0.8 * ulimit_gb){
-        std::cerr << "Warning: estimated memory (" << estimated_gb 
-        << " GB) approaches process limit. Switching to Davidson." << std::endl;
-        method = "davidson";
+    if (method == "diag" && basisDimBSE > ARMA_HARD_LIMIT){
+        std::cout << "BSE dimension " << basisDimBSE 
+        << " exceeds Armadillo's single-allocation limit (max ~46340). "
+        << "Switching to Zheevr." << std::endl;
+        method = "zheevr";
     }
     
     std::cout << "Solving BSE with ";
@@ -1374,8 +1371,14 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         
         eigs_opts opts;
         opts.maxiter = 10000; 
-        arma::eigs_gen(cx_eigval, eigvec, arma::sp_cx_mat(HBS), nstates, "sm", opts);
+        arma::eigs_gen(cx_eigval, eigvec, arma::sp_cx_mat(HBS), nstates, "sr", opts);
         eigval = arma::real(cx_eigval);
+    }
+    else if (method == "zheevr"){
+        std::cout << "Direct Zheevr call method..." << std::flush;
+        
+        // diagonalize_partial(eigval, eigvec, HBS, nstates);
+        davidson_method(eigval, eigvec, HBS, nstates);
     }
     
     std::cout << "Done" << std::endl;

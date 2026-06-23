@@ -2,6 +2,7 @@
 #define RESULTTB_HPP
 
 #pragma once
+#define ARMA_MAX_ELEM 0x200000000ULL
 #include <armadillo>
 #include "xatu/SystemTB.hpp"
 #include "xatu/Result.hpp"

@@ -2,6 +2,7 @@
 #include <math.h>
 #include <cassert>
 #include <iomanip>
+#define ARMA_MAX_ELEM 0x200000000ULL
 #include <armadillo>
 #include "xatu/Exciton.hpp"
 

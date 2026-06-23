@@ -60,4 +60,56 @@ void davidson_method(
     arma::cout << eigvec.n_cols << arma::endl;
 };
 
+// // Direct LAPACK call to zheevr, computing only nstates lowest eigenvalues
+// // This avoids both the Armadillo element limit and the full workspace allocation
+// extern "C" void zheevr_(char*, char*, char*, int*, std::complex<double>*, 
+//                         int*, double*, double*, int*, int*, double*, int*,
+//                         double*, std::complex<double>*, int*, int64_t*, 
+//                         std::complex<double>*, int*, double*, int*, int*, int*);
+// 
+// void diagonalize_partial(arma::vec& eigval, arma::cx_mat& eigvec, const arma::cx_mat& H, int nstates){
+//     int n = H.n_rows;
+//     int lda = n, ldz = n;
+//     int il = 1, iu = nstates; // compute states 1 through nstates
+//     int m_found;
+//     double abstol = 1e-10, vl = 0, vu = 0;
+//     int lwork = -1, lrwork = -1, liwork = -1, info;
+//     
+//     eigval.resize(nstates);
+//     eigvec.resize(n, nstates);
+//     arma::ivec isuppz(2*nstates);
+//     
+//     // workspace query
+//     std::complex<double> work_query;
+//     double rwork_query;
+//     int iwork_query;
+//     char V='V', I='I', U='U';
+//     zheevr_(&V, &I, &U, &n, 
+//             const_cast<std::complex<double>*>(H.memptr()), &lda,
+//             &vl, &vu, &il, &iu, &abstol, &m_found,
+//             eigval.memptr(), eigvec.memptr(), &ldz,
+//             isuppz.memptr(),
+//             &work_query, &lwork, &rwork_query, &lrwork, 
+//             &iwork_query, &liwork, &info);
+//     
+//     lwork  = (int)work_query.real();
+//     lrwork = (int)rwork_query;
+//     liwork = iwork_query;
+//     
+//     arma::cx_vec work(lwork);
+//     arma::vec rwork(lrwork);
+//     arma::ivec iwork(liwork);
+//     
+//     zheevr_(&V, &I, &U, &n,
+//             const_cast<std::complex<double>*>(H.memptr()), &lda,
+//             &vl, &vu, &il, &iu, &abstol, &m_found,
+//             eigval.memptr(), eigvec.memptr(), &ldz,
+//             isuppz.memptr(),
+//             work.memptr(), &lwork, rwork.memptr(), &lrwork,
+//             iwork.memptr(), &liwork, &info);
+//     
+//     if(info != 0)
+//         throw std::runtime_error("zheevr failed with info=" + std::to_string(info));
+// }
+
 }
