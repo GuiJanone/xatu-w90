@@ -1333,23 +1333,34 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     std::cout << "Solving BSE with ";
     if (method == "diag"){
         std::cout << "exact diagonalization... " << std::flush;
-        if(!this->tammdancoff_){
-           arma::cx_vec cx_eigval;
-           arma::uvec sorted_indices;
-
-           arma::eig_gen(cx_eigval, eigvec, HBS);
-           eigval = arma::real(cx_eigval);
-           
-           
-           sorted_indices = arma::sort_index(eigval, "ascend");
-           
-           eigval = eigval(sorted_indices);
-           eigvec = eigvec.cols(sorted_indices);
-           
-           // std::cout << "Eigval order " << sorted_indices << std::flush;
-        }
-        else if(this->tammdancoff_){
-            arma::eig_sym(eigval, eigvec, HBS);
+        try {
+            if(!this->tammdancoff_){
+                arma::cx_vec cx_eigval;
+                arma::uvec sorted_indices;
+                
+                arma::eig_gen(cx_eigval, eigvec, HBS);
+                eigval = arma::real(cx_eigval);
+                
+                
+                sorted_indices = arma::sort_index(eigval, "ascend");
+                
+                eigval = eigval(sorted_indices);
+                eigvec = eigvec.cols(sorted_indices);
+                
+                // std::cout << "Eigval order " << sorted_indices << std::flush;
+            }
+            else if(this->tammdancoff_){
+                arma::eig_sym(eigval, eigvec, HBS);
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Diagonalization failed: " << e.what() << std::endl;
+            std::cerr << "BSE matrix stats:" << std::endl;
+            std::cerr << "  size: " << HBS.n_rows << " x " << HBS.n_cols << std::endl;
+            std::cerr << "  is_hermitian check: " << arma::approx_equal(HBS, HBS.t(), "absdiff", 1e-10) << std::endl;
+            std::cerr << "  norm: " << arma::norm(HBS, "fro") << std::endl;
+            std::cerr << "  has_nan: " << HBS.has_nan() << std::endl;
+            std::cerr << "  has_inf: " << HBS.has_inf() << std::endl;
+            throw;
         }
     }
     else if (method == "davidson"){
@@ -1360,7 +1371,10 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         std::cout << "Lanczos method..." << std::flush;
 
         arma::cx_vec cx_eigval;
-        arma::eigs_gen(cx_eigval, eigvec, arma::sp_cx_mat(HBS), nstates, "sr");
+        
+        eigs_opts opts;
+        opts.maxiter = 10000; 
+        arma::eigs_gen(cx_eigval, eigvec, arma::sp_cx_mat(HBS), nstates, "sm", opts);
         eigval = arma::real(cx_eigval);
     }
     

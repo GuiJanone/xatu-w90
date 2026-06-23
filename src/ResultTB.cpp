@@ -257,6 +257,14 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
     int nR = system->unitCellList.n_rows;
     arma::uword norb = system->basisdim;
     arma::uword norb_ex = (exciton->TDA) ? exciton->excitonbasisdim : 2*exciton->excitonbasisdim;
+    arma::uword ldfk = norb_ex;   // actual leading dimension of m_eigvec
+    arma::uword norb_ex_computed = m_eigval.n_elem;  // actual states from diagonalization
+    
+    if (norb_ex_computed < norb_ex){
+        std::cout << "Warning: absorption spectrum computed from " 
+        << norb_ex_computed << " of " << norb_ex
+        << " BSE states. Spectrum truncated at high energies." << std::endl;
+    }
     int filling = system->filling;
     int nv = exciton->valenceBands.n_elem;
     int nc = exciton->conductionBands.n_elem;
@@ -328,7 +336,7 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
     else{
         shop = arma::real(system->overlapMatrices);
     }
-    int nk = system->nk;
+    arma::uword nk = system->nk;
     arma::vec rkx = system->kpoints.col(0);
     arma::vec rky = system->kpoints.col(1);
     arma::vec rkz = system->kpoints.col(2);
@@ -336,14 +344,14 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
     arma::mat eigval_sp = exciton->eigvalKStack;
     arma::cx_cube eigvec_sp = exciton->eigvecKStack;
 
-    arma::cx_cube vme_ex = arma::zeros<arma::cx_cube>(3, norb_ex, 2);
+    arma::cx_cube vme_ex = arma::zeros<arma::cx_cube>(3, norb_ex_computed, 2);
 
     std::complex<double>* vme = new std::complex<double>[3*nk*(nv + nc)*(nv + nc)];
     int convert_to_au = 1;
 
-    exciton_oscillator_strength_(&nR, &norb, &norb_ex, &nv, &nc, &filling, 
+    exciton_oscillator_strength_(&nR, &norb, &norb_ex_computed, &nv, &nc, &filling, 
              Rvec.memptr(), R.memptr(), extendedMotifFull.memptr(), hhop.memptr(), shop.memptr(), &nk, rkx.memptr(),
-             rky.memptr(), rkz.memptr(), eigvec_resonant.memptr(), m_eigval.memptr(), eigval_sp.memptr(), eigvec_sp.memptr(),
+             rky.memptr(), rkz.memptr(), eigvec_resonant.memptr(), &ldfk, m_eigval.memptr(), eigval_sp.memptr(), eigvec_sp.memptr(),
              vme, vme_ex.memptr(), &convert_to_au);
 
     delete[] vme;
@@ -469,8 +477,17 @@ void ResultTB::writeRealspaceAmplitude(const arma::cx_vec& statecoefs, int holeI
 void ResultTB::writeAbsorptionSpectrum(){
 
     int nR = system->unitCellList.n_rows;
-    int norb = system->basisdim;
-    int norb_ex = (exciton->TDA) ? exciton->excitonbasisdim : 2*exciton->excitonbasisdim;
+    arma::uword norb = system->basisdim;
+    arma::uword norb_ex = (exciton->TDA) ? exciton->excitonbasisdim : 2*exciton->excitonbasisdim;
+    arma::uword ldfk = norb_ex;   // actual leading dimension of m_eigvec
+    arma::uword norb_ex_computed = m_eigval.n_elem;  // actual states from diagonalization
+    
+    if (norb_ex_computed < norb_ex){
+        std::cout << "Warning: absorption spectrum computed from " 
+        << norb_ex_computed << " of " << norb_ex
+        << " BSE states. Spectrum truncated at high energies." << std::endl;
+    }
+    
     int filling = system->filling;
     int nv = exciton->valenceBands.n_elem;
     int nc = exciton->conductionBands.n_elem;
@@ -541,7 +558,7 @@ void ResultTB::writeAbsorptionSpectrum(){
     else{
         shop = arma::real(system->overlapMatrices);
     }
-    int nk = system->nk;
+    arma::uword nk = system->nk;
     arma::vec rkx = system->kpoints.col(0);
     arma::vec rky = system->kpoints.col(1);
     arma::vec rkz = system->kpoints.col(2);
@@ -550,9 +567,9 @@ void ResultTB::writeAbsorptionSpectrum(){
     arma::cx_cube eigvec_sp = exciton->eigvecKStack;
 
     // std::cout<< scissor << std::endl;
-    skubo_w_(&nR, &norb, &norb_ex, &nv, &nc, &filling, &scissor,
+    skubo_w_(&nR, &norb, &norb_ex_computed, &nv, &nc, &filling, &scissor,
              Rvec.memptr(), R.memptr(), extendedMotifFull.memptr(), hhop.memptr(), shop.memptr(), &nk, rkx.memptr(),
-             rky.memptr(), rkz.memptr(), m_eigvec.memptr(), m_eigval.memptr(), eigval_sp.memptr(), eigvec_sp.memptr());
+             rky.memptr(), rkz.memptr(), m_eigvec.memptr(), &ldfk, m_eigval.memptr(), eigval_sp.memptr(), eigvec_sp.memptr());
 }
 
 /**

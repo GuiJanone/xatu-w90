@@ -1,6 +1,6 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 subroutine skubo_w(nR,norb,norb_ex,nv_ex,nc_ex,nv,scissor,Rvec,R,B,hhop,shop,npointstotal,rkx, &
-rky,rkz,fk_ex,e_ex,eigval_stack,eigvec_stack)
+rky,rkz,fk_ex,ldfk,e_ex,eigval_stack,eigvec_stack)
 implicit real*8 (a-h,o-z)
 
 !out of subroutine arrays
@@ -11,7 +11,8 @@ dimension shop(norb,norb,nR)
 dimension rkx(npointstotal)
 dimension rky(npointstotal)
 dimension rkz(npointstotal)
-dimension fk_ex(norb_ex,norb_ex)
+integer ldfk
+dimension fk_ex(ldfk,norb_ex) ! leading dim = full BSE dim, columns = computed states
 dimension e_ex(norb_ex)
 ! dimension B(norb,3)
 dimension B(nR, norb*norb, 3)
@@ -119,7 +120,7 @@ vme_ex=0.0d0
 
 !calculate exciton oscillator strengths regardless of Kubo input
 call exciton_oscillator_strength(nR,norb,norb_ex,nv_ex,nc_ex,nv,Rvec,R,B,hhop,shop,npointstotal,rkx, &
-                                 rky,rkz,fk_ex,e_ex,eigval_stack,eigvec_stack,vme,vme_ex,.false.)
+                                 rky,rkz,fk_ex,ldfk,e_ex,eigval_stack,eigvec_stack,vme,vme_ex,.false.)
 
 if (do_kubo) then
   ! -- arrays needed for conductivity evaluation --
@@ -267,7 +268,7 @@ end
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 subroutine exciton_oscillator_strength(nR,norb,norb_ex,nv_ex,nc_ex,nv,Rvec,R,B,hhop,shop,npointstotal,rkx, &
-  rky,rkz,fk_ex,e_ex,eigval_stack,eigvec_stack,vme,vme_ex,convert_to_au)
+  rky,rkz,fk_ex,ldfk,e_ex,eigval_stack,eigvec_stack,vme,vme_ex,convert_to_au)
   implicit real*8 (a-h,o-z)
 
   !out of subroutine arrays
@@ -278,7 +279,8 @@ subroutine exciton_oscillator_strength(nR,norb,norb_ex,nv_ex,nc_ex,nv,Rvec,R,B,h
   dimension rkx(npointstotal)
   dimension rky(npointstotal)
   dimension rkz(npointstotal)
-  dimension fk_ex(norb_ex,norb_ex)
+  integer ldfk
+  dimension fk_ex(ldfk,norb_ex) 
   dimension e_ex(norb_ex)
   dimension B(nR, norb*norb, 3)
   dimension rhop(3,nR,norb,norb)
