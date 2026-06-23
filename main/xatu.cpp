@@ -40,7 +40,7 @@ int main(int argc, char* argv[]){
     cmd.add(outputOptions);
     TCLAP::SwitchArg outputArg("o", "output", "Write to file information about the excitons.", cmd, false);
 
-    std::vector<std::string> methods = {"diag", "davidson", "sparse"};
+    std::vector<std::string> methods = {"diag", "davidson", "sparse", "zheevr"};
     TCLAP::ValuesConstraint<std::string> allowedMethods(methods);
     TCLAP::ValueArg<std::string> methodArg("m", "method", "Method to solve the Bethe-Salpeter equation.", false, "diag", &allowedMethods, cmd);
     TCLAP::ValueArg<std::string> bandsArg("b", "bands", "Computes the bands of the system on the specified kpoints.", false, "kpoints.txt", "Filename", cmd);

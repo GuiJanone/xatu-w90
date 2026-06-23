@@ -464,10 +464,10 @@ double ExcitonTB::coulomb(arma::rowvec r){
     return (R != 0) ? ec/(4E-10*PI*eps0*R) : ec*1E10/(4*PI*eps0*regularization);   */ 
     double eps_bar = (eps_m + eps_s)/2;
     double potential_value;
-    if(R < 1E-10){
+    if(R < 1E-5){
         potential_value =ec/(4E-10*PI*eps0*eps_bar*regularization);
     }
-    else if (R > cutoff){
+    else if (R > 2.5*cutoff){
         potential_value = 0.0;
     }
     else{
@@ -1313,17 +1313,19 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     arma::vec eigval;
     arma::cx_mat eigvec;
 
-    int64_t basisDimBSE = this->basisStates.n_rows;
+    uint64_t basisDimBSE = this->basisStates.n_rows;
     double estimated_gb = (!this->tammdancoff_) ? 3.0 * 2*basisDimBSE * 2*basisDimBSE * 8.0 / (1<<30) : 3.0 * basisDimBSE * basisDimBSE * 8.0 / (1<<30);
     
     // Hard limit from Armadillo's internal 2^31 element check
+    // Something is being cast as a signed 32 bit integer. Still trying to figure out what.
     // N*N must fit, so N_max = floor(sqrt(2^31)) = 46340
     const int64_t ARMA_HARD_LIMIT = 46340;
     
     if (method == "diag" && basisDimBSE > ARMA_HARD_LIMIT){
         std::cout << "BSE dimension " << basisDimBSE 
-        << " exceeds Armadillo's single-allocation limit (max ~46340). "
-        << "Switching to Zheevr." << std::endl;
+        << " exceeds Armadillo's single-allocation limit (max ~46340)."
+        << " Need " << estimated_gb <<"GB of allocate space."
+        << " Switching to Zheevr." << std::endl;
         method = "zheevr";
     }
     
@@ -1353,6 +1355,7 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
             std::cerr << "Diagonalization failed: " << e.what() << std::endl;
             std::cerr << "BSE matrix stats:" << std::endl;
             std::cerr << "  size: " << HBS.n_rows << " x " << HBS.n_cols << std::endl;
+            std::cerr << "  memory needed: " << estimated_gb << " GB " << std::endl;
             std::cerr << "  is_hermitian check: " << arma::approx_equal(HBS, HBS.t(), "absdiff", 1e-10) << std::endl;
             std::cerr << "  norm: " << arma::norm(HBS, "fro") << std::endl;
             std::cerr << "  has_nan: " << HBS.has_nan() << std::endl;
@@ -1377,8 +1380,8 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     else if (method == "zheevr"){
         std::cout << "Direct Zheevr call method..." << std::flush;
         
-        // diagonalize_partial(eigval, eigvec, HBS, nstates);
-        davidson_method(eigval, eigvec, HBS, nstates);
+        diagonalize_partial(eigval, eigvec, HBS, nstates);
+
     }
     
     std::cout << "Done" << std::endl;

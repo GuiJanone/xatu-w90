@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#define ARMA_MAX_ELEM 0x200000000ULL
 #include <armadillo>
 #include <complex>
 #include <math.h>
