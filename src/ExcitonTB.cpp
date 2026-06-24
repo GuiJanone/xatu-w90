@@ -1107,7 +1107,10 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         basisStates = basis;
     };
     uint64_t basisDimBSE = basisStates.n_rows;
+    
+    double estimated_gb = (!this->tammdancoff_) ? 3.0 * 2*basisDimBSE * 2*basisDimBSE * 8.0 / (1<<30) : 3.0 * basisDimBSE * basisDimBSE * 8.0 / (1<<30);
     std::cout << "BSE dimension: " << basisDimBSE << std::endl;
+    std::cout << "Estimated memory requirement: " << estimated_gb << " GB"<< std::endl;
     std::cout << "Initializing Bethe-Salpeter matrix... " << std::flush;
     
     HBS_ = (!this->tammdancoff_) ? arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE) : arma::zeros<cx_mat>(basisDimBSE, basisDimBSE); 
@@ -1316,7 +1319,7 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     uint64_t basisDimBSE = this->basisStates.n_rows;
     double estimated_gb = (!this->tammdancoff_) ? 3.0 * 2*basisDimBSE * 2*basisDimBSE * 8.0 / (1<<30) : 3.0 * basisDimBSE * basisDimBSE * 8.0 / (1<<30);
     
-    // Hard limit from Armadillo's internal 2^31 element check
+    // Hard limit from Armadillo's internal 2^31 element check (https://gitlab.com/conradsnicta/armadillo-code/-/blob/15.4.x/include/armadillo_bits/memory.hpp?ref_type=heads#L47)
     // Something is being cast as a signed 32 bit integer. Still trying to figure out what.
     // N*N must fit, so N_max = floor(sqrt(2^31)) = 46340
     const int64_t ARMA_HARD_LIMIT = 46340;
@@ -1324,7 +1327,6 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     if (method == "diag" && basisDimBSE > ARMA_HARD_LIMIT){
         std::cout << "BSE dimension " << basisDimBSE 
         << " exceeds Armadillo's single-allocation limit (max ~46340)."
-        << " Need " << estimated_gb <<"GB of allocate space."
         << " Switching to Zheevr." << std::endl;
         method = "zheevr";
     }
