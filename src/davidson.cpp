@@ -60,6 +60,140 @@ void davidson_method(
     arma::cout << eigvec.n_cols << arma::endl;
 };
 
+
+// Attempt at optimizing davidson_method with claude
+void davidson_method_new(
+    arma::vec&          eigval,
+    arma::cx_mat&       eigvec,
+    const arma::cx_mat& mat,
+    int                 neigval,
+    double              tol)
+{
+    const int n       = mat.n_rows;
+    const int max_sub = std::min(n, std::max(neigval * 10, 50));
+    const int max_iter = 300;
+    
+    if (!mat.is_hermitian(1e-10))
+        throw std::invalid_argument("davidson_method: matrix must be Hermitian");
+    
+    // Cache diagonal for preconditioner
+    arma::cx_vec diag = mat.diag();
+    
+    // ----------------------------------------------------------------
+    // Initial subspace: use neigval unit vectors (not 2*neigval).
+    // Starting with the identity columns biases toward the natural
+    // basis which can break degeneracies — use a random unitary start
+    // for robustness with degenerate eigenvalues.
+    // ----------------------------------------------------------------
+    arma::cx_mat V(n, neigval, arma::fill::zeros);
+    {
+        arma::cx_mat rnd = arma::randn<arma::cx_mat>(n, neigval);
+        arma::cx_mat Qinit, Rinit;
+        arma::qr_econ(Qinit, Rinit, rnd);
+        V = Qinit;
+    }
+    
+    arma::vec    ritz_old = arma::vec(neigval, arma::fill::value(1e10));
+    arma::cx_mat AV(n, 0);       // mat*V, grown incrementally
+    arma::vec    theta;
+    arma::cx_mat s;
+    
+    for (int iter = 0; iter < max_iter; iter++) {
+        
+        // ----------------------------------------------------------------
+        // Orthonormalise V (thin QR). On first iter V is already
+        // orthonormal; subsequent iters may add nearly-dependent vectors.
+        // ----------------------------------------------------------------
+        {
+            arma::cx_mat Q, R;
+            arma::qr_econ(Q, R, V);
+            // Detect and discard numerically rank-deficient columns
+            arma::vec diag_R = arma::abs(R.diag());
+            double    thresh  = diag_R(0) * n * 1e-14;
+            int       rank    = (int)arma::sum(diag_R > thresh);
+            V = Q.cols(0, rank - 1);
+        }
+        
+        // ----------------------------------------------------------------
+        // Incremental mat-vec: only multiply columns added since last iter
+        // ----------------------------------------------------------------
+        int old_cols = (int)AV.n_cols;
+        int new_cols = (int)V.n_cols;
+        AV.resize(n, new_cols);
+        for (int c = old_cols; c < new_cols; c++)
+            AV.col(c) = mat * V.col(c);
+        
+        // ----------------------------------------------------------------
+        // Rayleigh-Ritz projection and diagonalisation
+        // H_proj is Hermitian by construction (V^H A V with A Hermitian)
+        // ----------------------------------------------------------------
+        arma::cx_mat H_proj = V.t() * AV;
+        // Enforce exact Hermitian symmetry to avoid eig_sym drift
+        H_proj = 0.5 * (H_proj + H_proj.t());
+        arma::eig_sym(theta, s, H_proj);
+        
+        // Ritz vectors in full space for all neigval targets
+        arma::cx_mat ritz = V * s.cols(0, neigval - 1);
+        
+        // ----------------------------------------------------------------
+        // Convergence: check residual norm for each target vector,
+        // not just eigenvalue difference. This correctly handles
+        // degenerate subspaces where eigenvalues converge before
+        // eigenvectors are properly separated.
+        // ----------------------------------------------------------------
+        arma::cx_mat AX = AV * s.cols(0, neigval - 1);
+        arma::vec res_norms(neigval);
+        for (int j = 0; j < neigval; j++){
+            arma::cx_vec r = AX.col(j) - theta(j) * ritz.col(j);
+            res_norms(j) = arma::norm(r);
+        }
+        
+        if (iter > 0 && arma::max(res_norms) < tol) {
+            eigval = theta.subvec(0, neigval - 1);
+            eigvec = ritz;
+            return;
+        }
+        ritz_old = theta.subvec(0, neigval - 1);
+        
+        // ----------------------------------------------------------------
+        // Subspace restart: collapse to neigval Ritz vectors
+        // ----------------------------------------------------------------
+        if ((int)V.n_cols >= max_sub) {
+            AV = AV * s.cols(0, neigval - 1);  // A*(V*s) = (AV)*s
+            V  = ritz;
+            continue;
+        }
+        
+        // ----------------------------------------------------------------
+        // Correction vectors for ALL neigval targets (not k=2*neigval).
+        // Using more targets than needed inflates the subspace and can
+        // introduce spurious mixing of degenerate states.
+        // Preconditioner: t_j = (D - theta_j I)^{-1} r_j
+        // ----------------------------------------------------------------
+        for (int j = 0; j < neigval; j++) {
+            arma::cx_vec r = AX.col(j) - theta(j) * ritz.col(j);
+            
+            arma::cx_vec t(n);
+            for (int row = 0; row < n; row++) {
+                std::complex<double> denom = diag(row) - theta(j);
+                t(row) = (std::abs(denom) > 1e-10) ? r(row) / denom : r(row);
+            }
+            
+            // Orthogonalise against current V (double Gram-Schmidt for stability)
+            t -= V * (V.t() * t);
+            t -= V * (V.t() * t);
+            double nt = arma::norm(t);
+            if (nt > 1e-12)
+                V.insert_cols(V.n_cols, t / nt);
+        }
+    }
+    
+    std::cerr << "davidson_method: did not converge in " << max_iter
+    << " iterations. Returning best approximation." << std::endl;
+    eigval = theta.subvec(0, neigval - 1);
+    eigvec = V * s.cols(0, neigval - 1);
+};
+
 // Direct LAPACK call to zheevr, computing only nstates lowest eigenvalues
 // This avoids both the Armadillo element limit and the full workspace allocation
 extern "C" void zheevr_(char*,               // JOBZ

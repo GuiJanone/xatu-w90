@@ -826,12 +826,12 @@ void ExcitonTB::initializeMotifFT(int i, const arma::mat& cells, potptr potentia
  * @return void
  */ 
 void ExcitonTB::initializeResultsH0() {
-    int nTotalBands = bandList.n_elem;
+    arma::uword nTotalBands = bandList.n_elem;
     double radius = arma::norm(system->bravaisLattice.row(0)) * cutoff_;
     arma::mat cells = system_->truncateSupercell(ncell, radius);
     arma::uword nk = system->nk;
     int natoms = system->natoms;
-    int basisdim = system->basisdim;
+    arma::uword basisdim = system->basisdim;
     
     this->eigvecKStack_  = arma::cx_cube(basisdim, nTotalBands, nk);
     this->eigvecKQStack_ = arma::cx_cube(basisdim, nTotalBands, nk);
@@ -1021,24 +1021,24 @@ void ExcitonTB::BShamiltonian(){
  * @param coefsK/Kp k/k' points in the definition of self-energy contribution
  * @return self energy contribution
  */
-std::complex<double> ExcitonTB::selfenergyTerm(bool Qtoggle, uint32_t k_index, uint32_t kp_index, const arma::cx_vec& coefsK, const arma::cx_vec& coefsKp){
+std::complex<double> ExcitonTB::selfenergyTerm(bool Qtoggle, uint64_t k_index, uint64_t kp_index, const arma::cx_vec& coefsK, const arma::cx_vec& coefsKp){
 
     std::complex<double> self = 0.0;
     if (this->selfenergy){
-        uint32_t k_index_0 = system_->findEquivalentPointBZ(arma::rowvec{0,0,0}, ncell);
+        uint64_t k_index_0 = system_->findEquivalentPointBZ(arma::rowvec{0,0,0}, ncell);
         arma::cx_mat motifFT0 = ftMotifStack.slice(k_index_0);
         arma::cx_vec coefsK3;
         arma::cx_mat motifFT3;
         if (mode == "realspace"){
             for (int v3 = 0; v3 < (int)valenceBands.n_elem; v3++){
-                for (uint32_t k3_index = 0; k3_index < system->nk; k3_index++){
+                for (uint64_t k3_index = 0; k3_index < system->nk; k3_index++){
                     if (gauge == "atomic"){
                         coefsK3 = system_->latticeToAtomicGauge(eigvecKStack.slice(k3_index).col(v3), system->kpoints.row(k3_index));
                     }
                     else{
                         coefsK3 = eigvecKStack.slice(k3_index).col(v3);
                     }
-                    uint32_t effective_k3_index = system_->findEquivalentPointBZ(system->kpoints.row(k3_index) - system->kpoints.row(k_index), ncell);
+                    uint64_t effective_k3_index = system_->findEquivalentPointBZ(system->kpoints.row(k3_index) - system->kpoints.row(k_index), ncell);
                     arma::cx_mat motifFT3 = (Qtoggle) ? this->ftMotifQ3.slice(effective_k3_index) : ftMotifStack.slice(effective_k3_index);
                     // if (Qtoggle){
                     //     arma::cx_mat motifFT3 = this->ftMotifQ3.slice(effective_k3_index);
@@ -1055,7 +1055,7 @@ std::complex<double> ExcitonTB::selfenergyTerm(bool Qtoggle, uint32_t k_index, u
         }
         else if (mode == "reciprocalspace"){
             for (int v3 = 0; v3 < (int)valenceBands.n_elem; v3++){
-                for (uint32_t k3_index = 0; k3_index < system->nk; k3_index++){
+                for (uint64_t k3_index = 0; k3_index < system->nk; k3_index++){
                     if (gauge == "atomic"){
                         coefsK3 = system_->latticeToAtomicGauge(eigvecKStack.slice(k3_index).col(v3), system->kpoints.row(k3_index));
                     }
@@ -1066,14 +1066,10 @@ std::complex<double> ExcitonTB::selfenergyTerm(bool Qtoggle, uint32_t k_index, u
                     arma::rowvec k3 = system->kpoints.row(k3_index);
                     
                     // Direct (Hartree-like) term: q=0, analogous to motifFT0
-                    std::complex<double> directTerm = reciprocalInteractionTerm(
-                        coefsK, coefsK3, coefsKp, coefsK3,
-                        k, k3, k, k3, this->nReciprocalVectors);
+                    std::complex<double> directTerm = reciprocalInteractionTerm(coefsK, coefsK3, coefsKp, coefsK3,k, k3, k, k3, this->nReciprocalVectors);
                     
                     // Exchange (Fock-like) term: q=k3-k, analogous to motifFT3
-                    std::complex<double> exchangeTerm = reciprocalInteractionTerm(
-                        coefsK, coefsK3, coefsK3, coefsKp,
-                        k, k3, k3, k, this->nReciprocalVectors);
+                    std::complex<double> exchangeTerm = reciprocalInteractionTerm(coefsK, coefsK3, coefsK3, coefsKp,k, k3, k3, k, this->nReciprocalVectors);
                     
                     self = self + directTerm - exchangeTerm;
                 }
@@ -1255,14 +1251,38 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         HBSres_  = HBSres_  + HBSres_.t();
         HBScoup_ = HBScoup_ + HBScoup_.t();
         
-        /*
-         *      We don't explicitly compute the antiresonat block nor the antires-res block as
-         *      HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, HBSares_ ) );
-         *      instead we use the explicit properties of the BSE matrix to construct them from the other two
-         *      10.1103/PhysRevB.92.045209   
-         */
-        HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, -(HBSres_.t()) ) );
         
+        // We don't explicitly compute the antiresonat block nor the antires-res block as
+        // HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, HBSares_ ) );
+        // instead we use the explicit properties of the BSE matrix to construct them from the other two
+        // 10.1103/PhysRevB.92.045209   
+         
+        // Attempt Cholesky reduction to standard Hermitian problem.
+        // Valid when (A-B) is positive definite (positive single-particle gap).
+        // Stores L, Linv, ApB for use in diagonalizeRaw() instead of full HBS_.
+        arma::cx_mat AmB = HBSres_ - HBScoup_;
+        arma::cx_mat ApB = HBSres_ + HBScoup_;
+        
+        if(arma::chol(choleskyL_, AmB, "lower")){
+            // C = L^{-1} * (A+B) * L^{-†} is Hermitian positive definite
+            // Store for diagonalizeRaw — don't build full HBS_ at all
+            choleskyLinv_ = arma::inv(arma::trimatl(choleskyL_));
+            HBS_ = choleskyLinv_ * ApB * choleskyLinv_.t();
+            useCholesky_ = true;
+            std::cout << "Using Cholesky reduction for full BSE (dim=" 
+            << HBSres_.n_rows << ")" << std::endl;
+        } 
+        else {
+            // Fallback: A-B not positive definite (e.g. metallic system)
+            // Build full pseudo-Hermitian matrix as before
+            
+            
+            std::cout << "Warning: Cholesky reduction failed (A-B not positive definite). "
+            << "Falling back to full BSE matrix." << std::endl;
+            HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ),
+                              join_cols( HBScoup_, -(HBSres_.t()) ) );
+            useCholesky_ = false;
+        }
     }
     else if(this->tammdancoff_){
         HBS_ = HBS_ + HBS_.t();
@@ -1336,17 +1356,48 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         std::cout << "exact diagonalization... " << std::flush;
         try {
             if(!this->tammdancoff_){
-                arma::cx_vec cx_eigval;
-                arma::uvec sorted_indices;
-                
-                arma::eig_gen(cx_eigval, eigvec, HBS);
-                eigval = arma::real(cx_eigval);
-                
-                
-                sorted_indices = arma::sort_index(eigval, "ascend");
-                
-                eigval = eigval(sorted_indices);
-                eigvec = eigvec.cols(sorted_indices);
+                if(useCholesky_){
+                    // Full BSE, Cholesky path:
+                    // HBS_ already stores C = L^{-1}(A+B)L^{-†} (Hermitian, half dimension)
+                    // Eigenvalues of C are E^2 — all states returned
+                    arma::eig_sym(eigval, eigvec, HBS);
+                    
+                    int nall  = (int)eigval.n_elem;  // all states from eig_sym
+                    eigval = arma::sqrt(arma::abs(eigval));
+                    
+                    int dim = choleskyL_.n_rows;
+                    arma::cx_mat XpY = choleskyLinv_.t() * eigvec;
+                    arma::cx_mat XmY = choleskyL_         * eigvec;
+                    for(int i = 0; i < nall; i++){
+                        XpY.col(i) /= std::sqrt(eigval(i));
+                        XmY.col(i) *= std::sqrt(eigval(i));
+                    }
+                    arma::cx_mat X = 0.5 * (XpY + XmY);
+                    arma::cx_mat Y = 0.5 * (XpY - XmY);
+                    
+                    eigvec.resize(2*dim, nall);
+                    eigvec.rows(0,       dim-1) = X;
+                    eigvec.rows(dim, 2*dim-1)   = Y;
+                }
+                else{
+                    // Full BSE, Cholesky failed (non-positive-definite A-B):
+                    // HBS_ is the full pseudo-Hermitian 2N x 2N matrix.
+                    // eig_gen + sort is the only general option here.
+                    std::cout << "(non-Hermitian fallback)... " << std::flush;
+                    arma::cx_vec cx_eigval;
+                    arma::uvec   sorted_indices;
+                    arma::eig_gen(cx_eigval, eigvec, HBS);
+                    eigval = arma::real(cx_eigval);
+                    
+                    sorted_indices = arma::sort_index(eigval, "ascend");
+                    eigval = eigval(sorted_indices);
+                    eigvec = eigvec.cols(sorted_indices);
+                    
+                    // // Keep only positive eigenvalues (negative are the -E mirror states)
+                    // arma::uvec pos = arma::find(eigval > 0);
+                    // eigval = eigval(pos);
+                    // eigvec = eigvec.cols(pos);
+                }
                 
                 // std::cout << "Eigval order " << sorted_indices << std::flush;
             }
@@ -1365,25 +1416,106 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
             throw;
         }
     }
+    else if (method == "zheevr"){
+        std::cout << "partial diagonalization (zheevr)... " << std::flush;
+        
+        if(this->tammdancoff_){
+            diagonalize_partial(eigval, eigvec, HBS, nstates);
+        }
+        else{
+            if(useCholesky_){
+                diagonalize_partial(eigval, eigvec, HBS, nstates);
+                
+                eigval = arma::sqrt(arma::abs(eigval));
+                
+                int dim = choleskyL_.n_rows;
+                arma::cx_mat XpY = choleskyLinv_.t() * eigvec;
+                arma::cx_mat XmY = choleskyL_         * eigvec;
+                for(int i = 0; i < (int)eigval.n_elem; i++){
+                    XpY.col(i) /= std::sqrt(eigval(i));
+                    XmY.col(i) *= std::sqrt(eigval(i));
+                }
+                arma::cx_mat X = 0.5 * (XpY + XmY);
+                arma::cx_mat Y = 0.5 * (XpY - XmY);
+                
+                eigvec.resize(2*dim, nstates);
+                eigvec.rows(0,       dim-1) = X;
+                eigvec.rows(dim, 2*dim-1)   = Y;
+            }
+            else{
+                throw std::runtime_error(
+                    "diagonalizeRaw(): zheevr for full BSE requires positive-definite "
+                    "(A-B). Cholesky decomposition failed for this system.");
+            }
+        }
+    }
     else if (method == "davidson"){
         std::cout << "Davidson method... " << std::flush;
-        davidson_method(eigval, eigvec, HBS, nstates);
+        
+        if(this->tammdancoff_){
+            davidson_method_new(eigval, eigvec, HBS, nstates);
+        }
+        else{
+            if(useCholesky_){
+                // Same Cholesky reduction works for Davidson:
+                // HBS_ stores C = L^{-1}(A+B)L^{-†}, diagonalize as Hermitian
+                davidson_method_new(eigval, eigvec, HBS, nstates);
+                
+                eigval = arma::sqrt(arma::abs(eigval));
+                
+                int dim = choleskyL_.n_rows;
+                arma::cx_mat XpY = choleskyLinv_.t() * eigvec;
+                arma::cx_mat XmY = choleskyL_         * eigvec;
+                for(int i = 0; i < (int)eigval.n_elem; i++){
+                    XpY.col(i) /= std::sqrt(eigval(i));
+                    XmY.col(i) *= std::sqrt(eigval(i));
+                }
+                arma::cx_mat X = 0.5 * (XpY + XmY);
+                arma::cx_mat Y = 0.5 * (XpY - XmY);
+                
+                eigvec.resize(2*dim, nstates);
+                eigvec.rows(0,       dim-1) = X;
+                eigvec.rows(dim, 2*dim-1)   = Y;
+            }
+            else{
+                // Non-positive-definite fallback: pseudo-Hermitian Davidson
+                // Not implemented — warn and throw
+                throw std::runtime_error(
+                    "diagonalizeRaw(): Davidson for full BSE requires positive-definite "
+                    "(A-B). Cholesky decomposition failed for this system. "
+                    "Use method='diag' with the non-Hermitian fallback.");
+            }
+        }
     }
     else if (method == "sparse"){
-        std::cout << "Lanczos method..." << std::flush;
-
+        std::cout << "Lanczos method... " << std::flush;
+        
+        if(!this->tammdancoff_){
+            throw std::runtime_error(
+                "diagonalizeRaw(): Lanczos method is only supported with TDA. "
+                "Use method='diag' or method='davidson' for full BSE.");
+        }
+        
         arma::cx_vec cx_eigval;
-        
         eigs_opts opts;
-        opts.maxiter = 10000; 
-        arma::eigs_gen(cx_eigval, eigvec, arma::sp_cx_mat(HBS), nstates, "sr", opts);
-        eigval = arma::real(cx_eigval);
-    }
-    else if (method == "zheevr"){
-        std::cout << "Direct Zheevr call method..." << std::flush;
+        opts.maxiter = 10000;
+        opts.tol     = 1e-10;
         
-        diagonalize_partial(eigval, eigvec, HBS, nstates);
-
+        arma::eigs_gen(cx_eigval, eigvec, arma::sp_cx_mat(HBS), nstates, "sr", opts);
+        
+        double max_imag = arma::max(arma::abs(arma::imag(cx_eigval)));
+        if(max_imag > 1e-6){
+            std::cerr << "Warning: Lanczos returned significant imaginary eigenvalue "
+            << "components (max=" << max_imag << "). "
+            << "Results may be inaccurate for degenerate states. "
+            << "Consider using method='diag' or method='davidson'." << std::endl;
+        }
+        eigval = arma::real(cx_eigval);
+        
+        // eigs_gen does not guarantee sorted output
+        arma::uvec idx = arma::sort_index(eigval, "ascend");
+        eigval = eigval(idx);
+        eigvec = eigvec.cols(idx);
     }
     
     std::cout << "Done" << std::endl;

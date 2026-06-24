@@ -29,8 +29,8 @@ double Result<T>::kineticEnergy(int stateindex){
     arma::vec HK = arma::zeros(exciton->excitonbasisdim);
 
     for (uint64_t n = 0; n < exciton->excitonbasisdim; n++){
-        uint32_t v = exciton_->bandToIndex[exciton->basisStates(n, 0)];
-        uint32_t c = exciton_->bandToIndex[exciton->basisStates(n, 1)];
+        uint64_t v = exciton_->bandToIndex[exciton->basisStates(n, 0)];
+        uint64_t c = exciton_->bandToIndex[exciton->basisStates(n, 1)];
         uint64_t k_index = exciton->basisStates(n, 2);
         uint64_t kQ_index = k_index;
 
@@ -418,7 +418,7 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
             }
         }
         // first line: number of cells
-        fprintf(textfile, "%u\n", 2*exciton->excitonbasisdim);
+        fprintf(textfile, "%lu\n", 2*exciton->excitonbasisdim);
         
         // second line: how many eigenvalues will follow
         uint64_t maxEigval = (newn == 0) ? 2*exciton->excitonbasisdim : newn;
@@ -441,7 +441,7 @@ void Result<T>::writeEigenvalues(FILE* textfile, int n, double encut){
             }
         }
         // first line: number of cells
-        fprintf(textfile, "%u\n", exciton->excitonbasisdim);
+        fprintf(textfile, "%lu\n", exciton->excitonbasisdim);
         
         // second line: how many eigenvalues will follow
         uint64_t maxEigval = (newn == 0) ? exciton->excitonbasisdim : newn;
@@ -477,7 +477,7 @@ void Result<T>::writeStates(FILE* textfile, int n, double encut){
             }
         }
         // First write basis
-        fprintf(textfile, "%d\n", exciton->excitonbasisdim);
+        fprintf(textfile, "%lu\n", exciton->excitonbasisdim);
         for(uint64_t i = 0; i <  exciton->excitonbasisdim; i++){
             arma::irowvec state = exciton->basisStates.row(i);
             arma::rowvec kpoint = system->kpoints.row(state(2));
@@ -509,7 +509,7 @@ void Result<T>::writeStates(FILE* textfile, int n, double encut){
             }
         }
         // First write basis
-        fprintf(textfile, "%d\n", exciton->excitonbasisdim);
+        fprintf(textfile, "%lu\n", exciton->excitonbasisdim);
         for(uint64_t i = 0; i < exciton->excitonbasisdim; i++){
             arma::irowvec state = exciton->basisStates.row(i);
             arma::rowvec kpoint = system->kpoints.row(state(2));

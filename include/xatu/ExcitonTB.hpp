@@ -158,7 +158,7 @@ class ExcitonTB : public Exciton<SystemTB> {
     public:
         // BSE initialization and energies
         void initializeHamiltonian();
-        std::complex<double> selfenergyTerm(bool, uint32_t, uint32_t, const arma::cx_vec&, const arma::cx_vec&);
+        std::complex<double> selfenergyTerm(bool, uint64_t, uint64_t, const arma::cx_vec&, const arma::cx_vec&);
         void writeBandSelfEnergy(FILE*);
         void BShamiltonian();
         void BShamiltonian(const arma::imat& basis);
