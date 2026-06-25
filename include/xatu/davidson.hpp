@@ -8,6 +8,6 @@ namespace xatu {
     void davidson_method_new(arma::vec&, arma::cx_mat&, const arma::cx_mat&, int neigval = 4, double tol = 1E-8);
     
     
-    void diagonalize_partial(arma::vec&, arma::cx_mat&, const arma::cx_mat&, int neigval = 4);
+    void diagonalize_partial(arma::vec&, arma::cx_mat&, arma::cx_mat&, int neigval = 4, bool preserve_H = false);
     
 }

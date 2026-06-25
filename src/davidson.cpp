@@ -221,27 +221,36 @@ extern "C" void zheevr_(char*,               // JOBZ
                         int*);               // INFO
 
 void diagonalize_partial(arma::vec& eigval, arma::cx_mat& eigvec, 
-                         const arma::cx_mat& H, int nstates){
-    int n = H.n_rows;
-    arma::cx_mat Hcopy = H;  // zheevr overwrites input
+                         arma::cx_mat& H, int nstates, bool preserve_H){
+    
+    arma::cx_mat* Hptr = &H;
+    arma::cx_mat  Hcopy;
+    if(preserve_H){
+        Hcopy = H;
+        Hptr  = &Hcopy;
+    }
+    
+    
+    
+    int n   = Hptr->n_rows;
     int lda = n, ldz = n;
-    int il = 1, iu = nstates;
+    int il  = 1, iu = nstates;
     int m_found;
     double abstol = 0.0, vl = 0.0, vu = 0.0;
     int lwork = -1, lrwork = -1, liwork = -1, info;
     
     eigval.resize(nstates);
     eigvec.resize(n, nstates);
-    std::vector<int> isuppz(2*n);  // safe upper bound
+    std::vector<int> isuppz(2*n);
     
-    // workspace query
+    // Workspace query
     std::complex<double> work_query;
     double rwork_query;
-    int iwork_query;
+    int    iwork_query;
     char V='V', I='I', U='U';
     
     zheevr_(&V, &I, &U, &n,
-            Hcopy.memptr(), &lda,
+            Hptr->memptr(), &lda,
             &vl, &vu, &il, &iu, &abstol, &m_found,
             eigval.memptr(), eigvec.memptr(), &ldz,
             isuppz.data(),
@@ -249,32 +258,34 @@ void diagonalize_partial(arma::vec& eigval, arma::cx_mat& eigvec,
             &iwork_query, &liwork, &info);
     
     if(info != 0)
-        throw std::runtime_error("zheevr workspace query failed with info=" 
+        throw std::runtime_error("zheevr workspace query failed with info="
         + std::to_string(info));
     
     lwork  = (int)work_query.real();
     lrwork = (int)rwork_query;
     liwork = iwork_query;
     
-    arma::cx_vec work(lwork);
-    arma::vec rwork(lrwork);
+    arma::cx_vec     work(lwork);
+    arma::vec        rwork(lrwork);
     std::vector<int> iwork(liwork);
     
     zheevr_(&V, &I, &U, &n,
-            Hcopy.memptr(), &lda,
+            Hptr->memptr(), &lda,
             &vl, &vu, &il, &iu, &abstol, &m_found,
             eigval.memptr(), eigvec.memptr(), &ldz,
             isuppz.data(),
-            work.memptr(), &lwork, rwork.memptr(), &lrwork,
-            iwork.data(), &liwork, &info);
+            work.memptr(),  &lwork,
+            rwork.memptr(), &lrwork,
+            iwork.data(),   &liwork, &info);
     
     if(info != 0)
-        throw std::runtime_error("zheevr failed with info=" 
+        throw std::runtime_error("zheevr failed with info="
         + std::to_string(info));
     
     if(m_found < nstates)
-        std::cerr << "Warning: zheevr found only " << m_found 
+        std::cerr << "Warning: zheevr found only " << m_found
         << " of " << nstates << " requested eigenvalues." << std::endl;
 }
+                         
 
 }

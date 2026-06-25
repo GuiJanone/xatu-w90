@@ -1104,9 +1104,12 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
     };
     uint64_t basisDimBSE = basisStates.n_rows;
     
-    double estimated_gb = (!this->tammdancoff_) ? 3.0 * 2*basisDimBSE * 2*basisDimBSE * 8.0 / (1<<30) : 3.0 * basisDimBSE * basisDimBSE * 8.0 / (1<<30);
+    double estimated_gb = (!this->tammdancoff_) 
+    ? (useCholesky_ ? 6.0*(double)basisDimBSE/2*(double)basisDimBSE/2*16.0/(1ULL<<30)
+    : 6.0*(double)basisDimBSE*2*(double)basisDimBSE*2*8.0/(1ULL<<30))
+    : (double)basisDimBSE*(double)basisDimBSE*16.0/(1ULL<<30);
     std::cout << "BSE dimension: " << basisDimBSE << std::endl;
-    std::cout << "Estimated memory requirement: " << estimated_gb << " GB"<< std::endl;
+    std::cout << "Estimated memory requirement for Bethe-Salpeter matrix: " << estimated_gb << " GB"<< std::endl;
     std::cout << "Initializing Bethe-Salpeter matrix... " << std::flush;
     
     HBS_ = (!this->tammdancoff_) ? arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE) : arma::zeros<cx_mat>(basisDimBSE, basisDimBSE); 
@@ -1337,7 +1340,26 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     arma::cx_mat eigvec;
 
     uint64_t basisDimBSE = this->basisStates.n_rows;
-    double estimated_gb = (!this->tammdancoff_) ? 3.0 * 2*basisDimBSE * 2*basisDimBSE * 8.0 / (1<<30) : 3.0 * basisDimBSE * basisDimBSE * 8.0 / (1<<30);
+    double estimated_gb;
+    if(method == "zheevr"){
+        estimated_gb = (
+            2.0 * (double)basisDimBSE * basisDimBSE * 16.0   // HBS + LWORK
+            + (double)basisDimBSE * nstates * 16.0              // eigvec
+        ) / (1ULL << 30);
+    }
+    else if(method == "diag"){
+        estimated_gb = (!this->tammdancoff_)
+        ? (3.0 * 4.0 * (double)basisDimBSE * basisDimBSE * 8.0) / (1ULL << 30)  // full BSE, eig_gen
+        : (3.0 *       (double)basisDimBSE * basisDimBSE * 8.0) / (1ULL << 30); // TDA, eig_sym
+    }
+    else if(method == "davidson"){
+        int max_sub = std::max(10 * nstates, 50);
+        estimated_gb = (
+            3.0 * (double)basisDimBSE * max_sub * 16.0   // V, AV, ritz
+        ) / (1ULL << 30);
+    }
+    
+    std::cout << "Estimated memory requirement for BSE diagonalization: " << estimated_gb << " GB"<< std::endl;
     
     // Hard limit from Armadillo's internal 2^31 element check (https://gitlab.com/conradsnicta/armadillo-code/-/blob/15.4.x/include/armadillo_bits/memory.hpp?ref_type=heads#L47)
     // Something is being cast as a signed 32 bit integer. Still trying to figure out what.
@@ -1420,11 +1442,13 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         std::cout << "partial diagonalization (zheevr)... " << std::flush;
         
         if(this->tammdancoff_){
-            diagonalize_partial(eigval, eigvec, HBS, nstates);
+            arma::cx_mat HBS_mutable = std::move(HBS_);
+            diagonalize_partial(eigval, eigvec, HBS_mutable, nstates);
         }
         else{
             if(useCholesky_){
-                diagonalize_partial(eigval, eigvec, HBS, nstates);
+                arma::cx_mat HBS_mutable = std::move(HBS_);
+                diagonalize_partial(eigval, eigvec, HBS_mutable, nstates);
                 
                 eigval = arma::sqrt(arma::abs(eigval));
                 
@@ -1517,7 +1541,7 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         eigval = eigval(idx);
         eigvec = eigvec.cols(idx);
     }
-    
+    HBS_.reset();
     std::cout << "Done" << std::endl;
 
     return new ResultTB(this, eigval, eigvec);
