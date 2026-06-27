@@ -350,13 +350,14 @@ void SystemTB::trackBands(const std::vector<arma::cx_mat>& prevEigvecs,
 	arma::vec referenceEigval = prevEigvals.back();
 	
 	double maxEnergyDiff = 0;
-	for (int i = 0; i < nbands; i++)
-		for (int j = 0; j < nbands; j++)
-			maxEnergyDiff = std::max(maxEnergyDiff,
-									std::abs(eigval(j) - referenceEigval(i)));
-			if (maxEnergyDiff < 1e-12) maxEnergyDiff = 1.0;
+	for (int i = 0; i < nbands; i++){
+		for (int j = 0; j < nbands; j++){
+			maxEnergyDiff = std::max(maxEnergyDiff, std::abs(eigval(j) - referenceEigval(i)));
+		}
+	}
+	if (maxEnergyDiff < 1e-12) maxEnergyDiff = 1.0;
 			
-			const double energyPenaltyScale   = 1e-3;
+	const double energyPenaltyScale   = 1e-3;
 	const double spinPenaltyScale     = 1e-3;
 	const double sameSpinBlockPenalty = 1e6;
 	
@@ -447,10 +448,11 @@ void SystemTB::trackBands(const std::vector<arma::cx_mat>& prevEigvecs,
 			j0 = j1;
 		} while (j0);
 	}
-	for (int j = 1; j <= nbands; j++)
+	for (int j = 1; j <= nbands; j++){
 		if (p[j] != 0) rowAssignment[p[j] - 1] = j - 1;
+	}
 		
-		arma::cx_mat reorderedEigvec(eigvec.n_rows, nbands);
+	arma::cx_mat reorderedEigvec(eigvec.n_rows, nbands);
 	arma::vec    reorderedEigval(nbands);
 	for (int i = 0; i < nbands; i++) {
 		reorderedEigvec.col(i) = eigvec.col(rowAssignment[i]);

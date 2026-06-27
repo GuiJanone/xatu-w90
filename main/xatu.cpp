@@ -204,6 +204,9 @@ int main(int argc, char* argv[]){
             }
         }
     }
+    if(nstates == 0 && encut == 0.0){
+        nstates_print = (int)results->eigval.n_elem - results->resonantOffset();
+    }
     
     cout << "+---------------------------------------------------------------------------+" << endl;
     cout << "|                                    Results                                |" << endl;

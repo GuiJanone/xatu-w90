@@ -25,7 +25,8 @@ Result<T>::Result(Exciton<T>* exciton, arma::vec& eigval, arma::cx_mat& eigvec) 
  */
 template <typename T>
 double Result<T>::kineticEnergy(int stateindex){
-    arma::cx_vec coefs = eigvec.col(stateindex);
+    arma::cx_vec coefs = eigvec.col(resonantOffset() + stateindex)
+    .subvec(0, exciton->excitonbasisdim - 1);
     arma::vec HK = arma::zeros(exciton->excitonbasisdim);
 
     for (uint64_t n = 0; n < exciton->excitonbasisdim; n++){
@@ -50,7 +51,7 @@ double Result<T>::kineticEnergy(int stateindex){
  */
 template <typename T>
 double Result<T>::potentialEnergy(int stateindex){
-    std::complex<double> energy = eigval(stateindex) - kineticEnergy(stateindex);
+    std::complex<double> energy = eigval(resonantOffset() + stateindex) - kineticEnergy(stateindex);
     return energy.real();
 }
 
@@ -73,7 +74,7 @@ double Result<T>::bindingEnergy(int stateindex, double gap){
         std::cout << "Provided gap value must be positive" << std::endl;
     }
 
-    energy = eigval(stateindex) - gap;
+    energy = eigval(resonantOffset() + stateindex) - gap;
     return energy;
 }
 
@@ -144,7 +145,9 @@ double Result<T>::ftExcitonEnvelope(int stateindex, const arma::rowvec& electron
  */
 template <typename T>
 arma::cx_vec Result<T>::spinX(int stateIndex){
-    // stateIndex is absolute (caller applies resonantOffset before passing)
+    // stateIndex is absolute (caller applies resonantOffset before passing).
+    // subvec extracts only the resonant (X) block — the check inside
+    // spinX(const arma::cx_vec&) for full BSE is therefore redundant.
     arma::cx_vec coefs = eigvec.col(stateIndex).subvec(0, exciton->excitonbasisdim - 1);
     return spinX(coefs);
 }
@@ -299,8 +302,14 @@ void Result<T>::writePhase(const arma::cx_vec& statecoefs, FILE* textfile){
  */
 template <typename T>
 void Result<T>::writePhase(int stateindex, FILE* textfile){
-    arma::cx_vec coefs = eigvec.col(stateindex);
-    writePhase(coefs, textfile);
+    int col    = resonantOffset() + stateindex;
+    int navail = (int)eigvec.n_cols - resonantOffset();
+    if(stateindex < 0 || stateindex >= navail)
+        throw std::invalid_argument(
+            "writeReciprocalAmplitude: stateindex " + std::to_string(stateindex) +
+            " out of range [0, " + std::to_string(navail) + ")");
+    arma::cx_vec statecoefs = eigvec.col(col).subvec(0, exciton->excitonbasisdim - 1);
+    writePhase(statecoefs, textfile);
 }
 
 /**
@@ -352,7 +361,13 @@ void Result<T>::writeExtendedPhase(const arma::cx_vec& statecoefs, FILE* textfil
  */
 template <typename T>
 void Result<T>::writeExtendedPhase(int stateindex, FILE* textfile){
-    arma::cx_vec statecoefs = eigvec.col(stateindex);
+    int col    = resonantOffset() + stateindex;
+    int navail = (int)eigvec.n_cols - resonantOffset();
+    if(stateindex < 0 || stateindex >= navail)
+        throw std::invalid_argument(
+            "writeReciprocalAmplitude: stateindex " + std::to_string(stateindex) +
+            " out of range [0, " + std::to_string(navail) + ")");
+    arma::cx_vec statecoefs = eigvec.col(col).subvec(0, exciton->excitonbasisdim - 1);
     writeExtendedPhase(statecoefs, textfile);
 }
 

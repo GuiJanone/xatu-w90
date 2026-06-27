@@ -41,6 +41,13 @@ class ResultTB : public Result<SystemTB> {
 
         // Define additional methods
         arma::cx_vec spinX(const arma::cx_vec&);
+        arma::cx_mat cachedSpinHole_;
+        arma::cx_mat cachedSpinElectron_;
+        std::vector<arma::cx_mat> spinHoleBlocks_;    // nk blocks of size npairs×npairs
+        std::vector<arma::cx_mat> spinElectronBlocks_;
+        bool spinMatricesInitialized_ = false;
+        
+        void initializeSpinMatrices();
         arma::mat velocity(int);
         arma::cx_vec velocitySingleParticle(int, int, int, std::string);
         arma::cx_mat excitonOscillatorStrength();

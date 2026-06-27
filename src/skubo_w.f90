@@ -848,7 +848,7 @@ pi=acos(-1.0d0)
 
 fw_c=0.0d0
 do i=1,n
-  fn_real(i) = fn(i)
+  fn_real(i) = REAL(fn(i))
 end do
 
 ! Parallelized over frequency — independent iterations, no race condition.
