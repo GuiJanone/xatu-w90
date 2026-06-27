@@ -38,30 +38,27 @@ bool checkIfTriangular(const arma::cx_mat&);
 * @param precision Number of decimals (sets degeneracy threshold)
 **/
 template<typename T>
-void printEnergies(const std::unique_ptr<T>& results, int n = 8, double encut = 0.0, int precision = 6, int nstart = 0){
+void printEnergies(const std::unique_ptr<T>& results, int n = 8, int precision = 6){
     
-    // print header
+    int offset = results->resonantOffset();
+    int navail = (int)results->eigval.n_elem - offset;
+    int newn   = (n == 0) ? navail : std::min(n, navail);
+    
+    arma::vec resonant_eigval = results->eigval.subvec(offset, offset + newn - 1);
+    std::vector<std::vector<double>> pairs = detectDegeneracies(resonant_eigval, newn, precision, 0);
+    
     printf("+---------------+-----------------------------+-----------------------------+\n");
     printf("|       N       |          Eigval (eV)        |          Degeneracy         |\n");
     printf("+---------------+-----------------------------+-----------------------------+\n");
     
-    int newn = n;
-    if (encut != 0.0){
-        newn = (int) arma::abs(results->eigval - encut).index_min() + 1 - nstart;
-    }
-    
-    std::vector<std::vector<double>> pairs = detectDegeneracies(results->eigval, newn, precision, nstart);
     int it = 1;
-    for(auto pair : pairs){
-        double energy  = pair[0];
-        int degeneracy = (int)pair[1];
-        
-        printf("|%15d|%29.*lf|%29d|\n", it, precision, energy, degeneracy);
+    for(const auto& pair : pairs){
+        printf("|%15d|%29.*lf|%29d|\n", it, precision, pair[0], (int)pair[1]);
         printf("+---------------+-----------------------------+-----------------------------+\n");
-        
         it++;
     }
 }
+
 
 /* Routines for tests */
 template<typename T>

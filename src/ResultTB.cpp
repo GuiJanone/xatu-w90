@@ -36,7 +36,7 @@ arma::cx_vec ResultTB::spinX(const arma::cx_vec& coefs){
     arma::cx_double electronSpin = 0;
     arma::cx_double holeSpin = 0;
     double totalSpin = 0;
-    int dimX = exciton->basisStates.n_rows;
+    arma::uword dimX = exciton->basisStates.n_rows;
     
     // Extract only the resonant part if full BSE
     arma::cx_vec coefsRes = (!exciton->TDA && coefs.n_elem == 2*dimX) ? arma::cx_vec(coefs.head(dimX)) : coefs;
@@ -117,7 +117,7 @@ arma::cx_vec ResultTB::spinX(const arma::cx_vec& coefs){
 arma::mat ResultTB::velocity(int index){
     
     int dimX = exciton->basisStates.n_rows; // N
-    int eigvecDim = (!exciton->TDA) ? 2*dimX : dimX;
+    // int eigvecDim = (!exciton->TDA) ? 2*dimX : dimX;
     // Extract resonant block of the eigenvector for this state
     arma::cx_vec stateCoefs = eigvec.col(index).head(dimX); // always take first N components
     
@@ -127,9 +127,9 @@ arma::mat ResultTB::velocity(int index){
     arma::cx_vec total_h_velocity = arma::zeros<arma::cx_vec>(3);
 
     #pragma omp parallel for collapse(3)
-    for (int n = 0; n < system->nk; n++){
-    for (int j = 0; j < exciton->conductionBands.n_elem; j++){
-    for (int i = 0; i < exciton->valenceBands.n_elem; i++){
+    for (arma::uword n = 0; n < system->nk; n++){
+    for (arma::uword j = 0; j < exciton->conductionBands.n_elem; j++){
+    for (arma::uword i = 0; i < exciton->valenceBands.n_elem; i++){
 
         arma::cx_vec local_e_velocity = arma::zeros<arma::cx_vec>(3);
         arma::cx_vec local_h_velocity = arma::zeros<arma::cx_vec>(3);
@@ -140,7 +140,7 @@ arma::mat ResultTB::velocity(int index){
 
         std::complex<double> coef = stateCoefs(eigvecIndex);
 
-        for (int jp = 0; jp < exciton->conductionBands.n_elem; jp++){
+        for (arma::uword jp = 0; jp < exciton->conductionBands.n_elem; jp++){
             int cp = exciton->conductionBands(jp);
             arma::cx_vec velocitySP = velocitySingleParticle(cp, c, n, "conduction");
 
@@ -148,7 +148,7 @@ arma::mat ResultTB::velocity(int index){
             local_e_velocity += velocitySP * coef * std::conj(stateCoefs(eigvecIndexP));
         }
 
-        for (int ip = 0; ip < exciton->valenceBands.n_elem; ip++){
+        for (arma::uword ip = 0; ip < exciton->valenceBands.n_elem; ip++){
             int vp = exciton->valenceBands(ip);
             arma::cx_vec velocitySP = velocitySingleParticle(v, vp, n, "valence");
 
@@ -298,8 +298,8 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
                 arma::mat realPart = arma::real(currentCube.slice(slice)); // Extract real part of the slice
 
                 // Flatten the norb x norb matrix into norb * norb
-                for (int row = 0; row < norb; row++) {
-                    for (int col = 0; col < norb; col++) {
+                for (arma::uword row = 0; row < norb; row++) {
+                    for (arma::uword col = 0; col < norb; col++) {
                         int flattenedIndex = row * norb + col; // Flatten (row, col) into a 1D index
                         extendedMotifFull(iFock, flattenedIndex, slice) = realPart(row, col);
                     }
@@ -314,7 +314,7 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
             arma::rowvec atom = system->motif.row(i).subvec(0, 2); // Extract XYZ coordinates
             int species = system->motif.row(i)(3);
             
-            for (int j = 0; j < system->orbitals(species); j++) {
+            for (arma::uword j = 0; j < system->orbitals(species); j++) {
                 // Fill the diagonal of the first slice of the cube matrix
                 int diagonalIndex = it * system->basisdim + it; // Calculate the flattened diagonal index
                 extendedMotifFull(0, diagonalIndex, 0) = atom(0); // X coordinate
@@ -329,7 +329,7 @@ arma::cx_mat ResultTB::excitonOscillatorStrength(){
     arma::cx_cube hhop = system->hamiltonianMatrices;
     arma::cube shop(arma::size(hhop));
     if (system->overlapMatrices.empty()){
-        for (int i = 0; i < hhop.n_slices; i++){
+        for (arma::uword i = 0; i < hhop.n_slices; i++){
             shop.slice(i) = arma::eye(size(hhop.slice(i)));
         }
     }
@@ -373,7 +373,7 @@ double ResultTB::realSpaceWavefunction(const arma::cx_vec& BSEcoefs, int electro
 
     std::complex<double> imag(0, 1);
     double totalAmplitude = 0;
-    int dimX = exciton->basisStates.n_rows;
+    arma::uword dimX = exciton->basisStates.n_rows;
     // Project to resonant block if full BSE eigenvector is passed
     arma::cx_vec eigvec = (!exciton->TDA && BSEcoefs.n_elem == 2*dimX) ? arma::cx_vec(BSEcoefs.head(dimX)) : arma::cx_vec(BSEcoefs);
     int eOrbitals = system->orbitals(system->motif.row(electronIndex)(3));
@@ -384,10 +384,10 @@ double ResultTB::realSpaceWavefunction(const arma::cx_vec& BSEcoefs, int electro
     // Compute index corresponding to electron and hole
     int eIndex = 0;
     int hIndex = 0;
-    for(unsigned int i = 0; i < electronIndex; i++){
+    for(int i = 0; i < electronIndex; i++){
         eIndex += system->orbitals(system->motif.row(i)(3));
     }
-    for(unsigned int i = 0; i < holeIndex; i++){
+    for(int i = 0; i < holeIndex; i++){
         hIndex += system->orbitals(system->motif.row(i)(3));
     }
     eigvec = addExponential(eigvec, eCell - hCell);
@@ -441,7 +441,7 @@ void ResultTB::writeRealspaceAmplitude(const arma::cx_vec& statecoefs, int holeI
     double radius = arma::norm(system->bravaisLattice.row(0)) * ncells;
     arma::mat cellCombinations = system->truncateSupercell(exciton->ncell, radius);
     arma::vec coefs = arma::zeros(cellCombinations.n_rows*system->motif.n_rows);
-    int it = 0;
+    // int it = 0;
 
     // Compute probabilities
     #pragma omp parallel for
@@ -477,16 +477,24 @@ void ResultTB::writeRealspaceAmplitude(const arma::cx_vec& statecoefs, int holeI
 void ResultTB::writeAbsorptionSpectrum(){
 
     int nR = system->unitCellList.n_rows;
+    // writeAbsorptionSpectrum:
+    int offset = resonantOffset();
+    
     arma::uword norb = system->basisdim;
     arma::uword norb_ex = (exciton->TDA) ? exciton->excitonbasisdim : 2*exciton->excitonbasisdim;
-    arma::uword ldfk = norb_ex;   // actual leading dimension of m_eigvec
-    arma::uword norb_ex_computed = m_eigval.n_elem;  // actual states from diagonalization
+    // arma::uword ldfk = norb_ex;   // actual leading dimension of m_eigvec
+    arma::uword ldfk = (int)m_eigvec.n_rows;
+    
+    arma::uword norb_ex_computed = (int)m_eigval.n_elem - offset;
+    // arma::uword norb_ex_computed = m_eigval.n_elem;  // actual states from diagonalization
     
     if (norb_ex_computed < norb_ex){
         std::cout << "Warning: absorption spectrum computed from " 
         << norb_ex_computed << " of " << norb_ex
         << " BSE states. Spectrum truncated at high energies." << std::endl;
     }
+    
+    arma::cx_mat eigvec_resonant = m_eigvec.cols(offset, offset + norb_ex_computed - 1);
     
     int filling = system->filling;
     int nv = exciton->valenceBands.n_elem;
@@ -496,7 +504,7 @@ void ResultTB::writeAbsorptionSpectrum(){
     arma::mat Rvec = system->unitCellList;
     // Extend bravais lattice to 3x3 matrix
     arma::mat R = arma::zeros(3, 3);
-    for (int i = 0; i < system->bravaisLattice.n_rows; i++){
+    for (arma::uword i = 0; i < system->bravaisLattice.n_rows; i++){
         R.row(i) = system->bravaisLattice.row(i);
     }
 
@@ -520,8 +528,8 @@ void ResultTB::writeAbsorptionSpectrum(){
                 arma::mat realPart = arma::real(currentCube.slice(slice)); // Extract real part of the slice
 
                 // Flatten the norb x norb matrix into norb * norb
-                for (int row = 0; row < norb; row++) {
-                    for (int col = 0; col < norb; col++) {
+                for (arma::uword row = 0; row < norb; row++) {
+                    for (arma::uword col = 0; col < norb; col++) {
                         int flattenedIndex = row * norb + col; // Flatten (row, col) into a 1D index
                         extendedMotifFull(iFock, flattenedIndex, slice) = realPart(row, col);
                     }
@@ -569,7 +577,7 @@ void ResultTB::writeAbsorptionSpectrum(){
     // std::cout<< scissor << std::endl;
     skubo_w_(&nR, &norb, &norb_ex_computed, &nv, &nc, &filling, &scissor,
              Rvec.memptr(), R.memptr(), extendedMotifFull.memptr(), hhop.memptr(), shop.memptr(), &nk, rkx.memptr(),
-             rky.memptr(), rkz.memptr(), m_eigvec.memptr(), &ldfk, m_eigval.memptr(), eigval_sp.memptr(), eigvec_sp.memptr());
+             rky.memptr(), rkz.memptr(), eigvec_resonant.memptr(), &ldfk, (m_eigval.memptr() + offset), eigval_sp.memptr(), eigvec_sp.memptr());
 }
 
 /**

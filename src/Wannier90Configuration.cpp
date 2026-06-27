@@ -136,7 +136,7 @@ namespace xatu {
         ndim = 1;
 
         // Check if any z-component (column 2) is non-zero
-        for (int i = 0; i < iRn.n_rows; ++i) {
+        for (arma::uword i = 0; i < iRn.n_rows; ++i) {
             if (iRn(i, 2) != 0) {
                 ndim = 3;
                 break;  // No need to check further if 3D is confirmed
@@ -145,7 +145,7 @@ namespace xatu {
 
         // If not 3D, check y-components (column 1)
         if (ndim == 1) {
-            for (int i = 0; i < iRn.n_rows; ++i) {
+            for (arma::uword i = 0; i < iRn.n_rows; ++i) {
                 if (iRn(i, 1) != 0) {
                     ndim = 2;
                     break;

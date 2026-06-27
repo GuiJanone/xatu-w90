@@ -53,7 +53,11 @@ int main(int argc, char* argv[]){
     cmd.parse(argc, argv);
 
     // Extract information from parsed CLI options
-    int nstates        = statesArg.getValue();
+    int nstatest        = statesArg.getValue();
+    if(nstatest < 0){
+        throw std::invalid_argument("-n cannot be a negative ammount");
+    }
+    uint64_t nstates = static_cast<uint64_t>(nstatest);
     double encut       = energycutoff.getValue();
     int ncells         = dftArg.getValue();
     int electronNum    = w90Arg.getValue();
@@ -153,29 +157,58 @@ int main(int argc, char* argv[]){
     
     bulkExciton.initializeHamiltonian();
     bulkExciton.BShamiltonian();
+    // Before diagonalization, if encut is set and method is not "diag":
+    // Warn the user and treat nstates as an upper bound
+    int nstates_print = nstates;
+    if(encut != 0.0 && method != "diag"){
+        std::cout << "Note: with method='" << method << "', -t sets an energy "
+        << "filter on the already-computed " << nstates 
+        << " states. To guarantee all states below " << encut 
+        << " eV are captured, ensure -n is set large enough." << std::endl;
+    }
     auto results = bulkExciton.diagonalize(method, nstates);
-
+    
+    // After diagonalization:
+    if(encut != 0.0){
+        int offset = results->resonantOffset();
+        // For TDA: offset=0, navail=eigval.n_elem (all states are resonant)
+        // For full BSE: offset=nstates or excitonbasisdim, navail=remaining positive states
+        int navail = (int)results->eigval.n_elem - offset;
+        
+        if(navail <= 0){
+            std::cerr << "Warning: no resonant states available." << std::endl;
+        }
+        else{
+            arma::vec resonant_eigval = results->eigval.subvec(
+                offset, results->eigval.n_elem - 1);
+            
+            arma::uvec below = arma::find(resonant_eigval <= encut);
+            
+            if(below.n_elem == 0){
+                std::cerr << "Warning: no states found below encut=" << encut
+                << " eV. Printing all " << navail
+                << " available states." << std::endl;
+                nstates_print = navail;
+            }
+            else{
+                nstates_print = (int)below.n_elem;
+                std::cout << "encut=" << encut << " eV: printing "
+                << nstates_print << " states." << std::endl;
+                
+                if(resonant_eigval(navail - 1) <= encut){
+                    std::cerr << "Warning: all " << navail
+                    << " computed states are below encut=" << encut
+                    << " eV. Increase -n to capture more states."
+                    << std::endl;
+                }
+            }
+        }
+    }
+    
     cout << "+---------------------------------------------------------------------------+" << endl;
     cout << "|                                    Results                                |" << endl;
     cout << "+---------------------------------------------------------------------------+" << endl;
-    if (!excitonConfig->excitonInfo.tammdancoff){
-        if (nstates==0){
-            xatu::printEnergies(results, 0, decimals);
-        }
-        else{
-            if (nstates < bulkExciton.excitonbasisdim){
-                xatu::printEnergies(results, bulkExciton.excitonbasisdim + nstates, encut, decimals);
-            }
-            else{
-                 xatu::printEnergies(results, nstates, encut, decimals);
-            }
-            // xatu::printEnergies(results, nstates, encut, decimals);
-        }
-    }
-    else if (excitonConfig->excitonInfo.tammdancoff){
-        xatu::printEnergies(results, nstates, encut, decimals);
-    }
-
+    xatu::printEnergies(results, nstates_print, decimals);
 
     cout << "+---------------------------------------------------------------------------+" << endl;
     cout << "|                                    Output                                 |" << endl;
@@ -191,7 +224,7 @@ int main(int argc, char* argv[]){
 
         std::cout << "Writing eigvals to file: " << filename_en << std::endl;
         fprintf(textfile_en, "%d\n", excitonConfig->excitonInfo.ncell);
-        results->writeEigenvalues(textfile_en, nstates, encut);
+        results->writeEigenvalues(textfile_en, nstates_print);
 
         fclose(textfile_en);
     }
@@ -214,7 +247,7 @@ int main(int argc, char* argv[]){
         FILE* textfile_st = fopen(filename_st.c_str(), "w");
 
         std::cout << "Writing states to file: " << filename_st << std::endl;
-        results->writeStates(textfile_st, nstates, encut);
+        results->writeStates(textfile_st, nstates_print);
 
         fclose(textfile_st);
     }
@@ -223,32 +256,12 @@ int main(int argc, char* argv[]){
     if(writeWF){
         std::string filename_kwf = output + ".kwf";
         FILE* textfile_kwf = fopen(filename_kwf.c_str(), "w");
-
         std::cout << "Writing k w.f. to file: " << filename_kwf << std::endl;
-        if (!excitonConfig->excitonInfo.tammdancoff){
-            int nstart = (nstates < bulkExciton.excitonbasisdim) ? bulkExciton.excitonbasisdim : 0;
-            // std::cout << nstart << std::endl;
-            // std::cout << nstates << std::endl;
-            // int nstart = 0;
-            for(int stateindex = nstart; stateindex < nstart + nstates; stateindex++){
-                if (excitonConfig->excitonInfo.submeshFactor != 1){
-                    results->writeReciprocalAmplitude(stateindex, textfile_kwf);
-                }
-                else{
-                    results->writeExtendedReciprocalAmplitude(stateindex, textfile_kwf);
-                }
-            }
-        
-        }
-        else{
-            for(int stateindex = 0; stateindex < nstates; stateindex++){
-                if (excitonConfig->excitonInfo.submeshFactor != 1){
-                    results->writeReciprocalAmplitude(stateindex, textfile_kwf);
-                }
-                else{
-                    results->writeExtendedReciprocalAmplitude(stateindex, textfile_kwf);
-                }
-            }
+        for(uint64_t stateindex = 0; stateindex < nstates_print; stateindex++){
+            if(excitonConfig->excitonInfo.submeshFactor != 1)
+                results->writeReciprocalAmplitude(stateindex, textfile_kwf);
+            else
+                results->writeExtendedReciprocalAmplitude(stateindex, textfile_kwf);
         }
         fclose(textfile_kwf);
     }
@@ -257,20 +270,14 @@ int main(int argc, char* argv[]){
     if(writeRSWF){
         std::string filename_rswf = output + ".rswf";
         FILE* textfile_rswf = fopen(filename_rswf.c_str(), "w");
-        int nstart = 0;
-        if (!excitonConfig->excitonInfo.tammdancoff){
-            nstart = (nstates < bulkExciton.excitonbasisdim) ? bulkExciton.excitonbasisdim : 0;           
-        }
-        // std::cout << nstart << std::endl;
-        // std::cout << nstates << std::endl;
-        arma::uvec statesToWrite = arma::regspace<arma::uvec>(nstart, nstart + nstates - 1);
-        // std::cout << statesToWrite << std::endl;
         std::cout << "Writing real space w.f. to file: " << filename_rswf << std::endl;
         arma::rowvec holeCell = {0., 0., 0.};
         
-        for(unsigned int i = nstart; i < nstart + statesToWrite.n_elem; i++){
-            std::cout << "Writing state " << i - nstart + 1 << " out of " << statesToWrite.n_elem << std::endl;
-            results->writeRealspaceAmplitude(statesToWrite(i-nstart), holeIndex, holeCell, textfile_rswf, ncellsRSWF);
+        for(uint64_t stateindex = 0; stateindex < (uint64_t)nstates_print; stateindex++){
+            std::cout << "Writing state " << stateindex + 1 
+            << " out of " << nstates_print << std::endl;
+            results->writeRealspaceAmplitude(stateindex, holeIndex, holeCell, 
+                                             textfile_rswf, ncellsRSWF);
         }
         fclose(textfile_rswf);
     }
@@ -287,7 +294,7 @@ int main(int argc, char* argv[]){
         FILE* textfile_spin = fopen(filename_spin.c_str(), "w");
 
         std::cout << "Writing excitons spin to file: " << filename_spin << std::endl;
-        results->writeSpin(nstates, encut, textfile_spin);
+        results->writeSpin(nstates_print, textfile_spin);
     }
 
     auto stop = high_resolution_clock::now();
