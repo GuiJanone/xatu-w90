@@ -173,7 +173,7 @@ void Result<T>::writeReciprocalAmplitude(const arma::cx_vec& statecoefs, FILE* t
                     abs(statecoefs(nbandsCombinations*i + nband));
         };
         coef /= arma::norm(system->kpoints.row(1) - system->kpoints.row(0)); // L2 norm instead of l2
-        fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8lf\n", 
+        fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8le\n", 
                     system->kpoints.row(i)(0), system->kpoints.row(i)(1), system->kpoints.row(i)(2), coef);
     };
     fprintf(textfile, "#\n");
@@ -190,11 +190,12 @@ template <typename T>
 void Result<T>::writeReciprocalAmplitude(int stateindex, FILE* textfile){
     int col    = resonantOffset() + stateindex;
     int navail = (int)eigvec.n_cols - resonantOffset();
-    if(stateindex < 0 || stateindex >= navail)
+    if(stateindex < 0 || stateindex >= navail){
         throw std::invalid_argument(
             "writeReciprocalAmplitude: stateindex " + std::to_string(stateindex) +
             " out of range [0, " + std::to_string(navail) + ")");
-        arma::cx_vec statecoefs = eigvec.col(col).subvec(0, exciton->excitonbasisdim - 1);
+    }
+    arma::cx_vec statecoefs = eigvec.col(col).subvec(0, exciton->excitonbasisdim - 1);
     writeReciprocalAmplitude(statecoefs, textfile);
 }
 
@@ -225,7 +226,7 @@ void Result<T>::writeExtendedReciprocalAmplitude(const arma::cx_vec& statecoefs,
             }
             arma::rowvec displaced_k = system->kpoints.row(i) + cell;
             if(abs(displaced_k(0)) < boxLimit && abs(displaced_k(1)) < boxLimit){
-                fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8lf\n", 
+                fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8le\n", 
                     displaced_k(0), displaced_k(1), displaced_k(2), coef);
             }
         }
@@ -286,7 +287,7 @@ void Result<T>::writePhase(const arma::cx_vec& statecoefs, FILE* textfile){
     for (arma::uword i = 0; i < system->kpoints.n_rows; i++){
         module = abs(statecoefs(i));
         phase = arg(statecoefs(i));
-        fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8lf\t%11.8lf\n", 
+        fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8le\t%11.8le\n", 
                     system->kpoints.row(i)(0), system->kpoints.row(i)(1), system->kpoints.row(i)(2), 
                     module, phase);
     };
@@ -341,7 +342,7 @@ void Result<T>::writeExtendedPhase(const arma::cx_vec& statecoefs, FILE* textfil
                                 cells.row(n)(1)*system->reciprocalLattice.row(1);
             arma::rowvec displaced_k = system->kpoints.row(i) + cell;
             if(abs(displaced_k(0)) < boxLimit && abs(displaced_k(1)) < boxLimit){
-                fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8lf\t%11.8lf\n", 
+                fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8le\t%11.8le\n", 
                     displaced_k(0), displaced_k(1), displaced_k(2), module, phase);
             }
         }
@@ -386,7 +387,7 @@ void Result<T>::writeRealspaceAmplitude(const arma::cx_vec& statecoefs, int hole
                                      const arma::rowvec& holeCell, FILE* textfile, int ncells){
 
     arma::rowvec holePosition = system->motif.row(holeIndex).subvec(0, 2) + holeCell;
-    fprintf(textfile, "%11.8lf\t%11.8lf\t%14.11lf\n", holePosition(0), holePosition(1), 0.0);
+    fprintf(textfile, "%11.8lf\t%11.8lf\t%14.11le\n", holePosition(0), holePosition(1), 0.0);
 
     double radius = arma::norm(system->bravaisLattice.row(0)) * ncells;
     arma::mat cellCombinations = system->truncateSupercell(exciton->ncell, radius);
@@ -409,7 +410,7 @@ void Result<T>::writeRealspaceAmplitude(const arma::cx_vec& statecoefs, int hole
         arma::rowvec cell = cellCombinations.row(cellIndex);
         for(unsigned int atomIndex = 0; atomIndex < system->motif.n_rows; atomIndex++){
             arma::rowvec position = system->motif.row(atomIndex).subvec(0, 2) + cell;
-            fprintf(textfile, "%11.8lf\t%11.8lf\t%14.11lf\n",
+            fprintf(textfile, "%11.8lf\t%11.8lf\t%14.11le\n",
                             position(0), position(1), coefs(it));
             it++;
         }
@@ -494,8 +495,8 @@ void Result<T>::writeStates(FILE* textfile, int n){
     // Write eigenvectors — resonant block only (rows 0..excitonbasisdim-1)
     for(int i = offset; i < offset + nprint; i++){
         for(uint64_t j = 0; j < exciton->excitonbasisdim; j++){
-            fprintf(textfile, "%11.7lf\t%11.7lf\t",
-                    real(eigvec.col(i)(j)), imag(eigvec.col(i)(j)));
+            fprintf(textfile, "%11.7le\t%11.7le\t", real(eigvec.col(i)(j)), imag(eigvec.col(i)(j)));
+            // fprintf(textfile, "%11.7lf\t%11.7lf\t", real(eigvec.col(i)(j)), imag(eigvec.col(i)(j)));
         }
         fprintf(textfile, "\n");
     }

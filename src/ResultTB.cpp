@@ -24,11 +24,11 @@ void ResultTB::initializeSpinMatrices(){
     {
         if(!spinMatricesInitialized_){
             
-            if(system->basisdim % 2 != 0)
+            if(system->basisdim % 2 != 0){
                 throw std::invalid_argument(
                     "initializeSpinMatrices: system basis must include spin.");
-                
-                int nk      = system->kpoints.n_rows;
+            }
+            int nk      = system->kpoints.n_rows;
             int nvbands = exciton->valenceBands.n_elem;
             int ncbands = exciton->conductionBands.n_elem;
             int npairs  = nvbands * ncbands;
@@ -181,28 +181,29 @@ arma::cx_vec ResultTB::spinX(const arma::cx_vec& coefs){
     int nk     = system->kpoints.n_rows;
     
     // Sanity check before entering parallel region
-    if((int)coefs.n_elem != nk * npairs)
+    if((int)coefs.n_elem != nk * npairs){
         throw std::invalid_argument(
             "spinX: coefs size " + std::to_string(coefs.n_elem) +
             " does not match nk*npairs=" + std::to_string(nk*npairs));
-        if((int)spinHoleBlocks_.size() != nk)
-            throw std::invalid_argument(
-                "spinX: spinHoleBlocks_ size " + std::to_string(spinHoleBlocks_.size()) +
-                " does not match nk=" + std::to_string(nk));
-            
-            arma::cx_double holeSpin = 0, electronSpin = 0;
-        
-        #pragma omp parallel for reduction(+:holeSpin, electronSpin)
-        for(int k = 0; k < nk; k++){
-            int start = k * npairs;
-            // Each thread makes its own copy of ck — no shared state
-            arma::cx_vec ck = coefs.subvec(start, start + npairs - 1);
-            holeSpin     -= arma::cdot(ck, spinHoleBlocks_[k]     * ck);
-            electronSpin += arma::cdot(ck, spinElectronBlocks_[k] * ck);
+    }
+    if((int)spinHoleBlocks_.size() != nk){
+        throw std::invalid_argument(
+            "spinX: spinHoleBlocks_ size " + std::to_string(spinHoleBlocks_.size()) +
+            " does not match nk=" + std::to_string(nk));
         }
+    arma::cx_double holeSpin = 0, electronSpin = 0;
         
-        double totalSpin = real(holeSpin + electronSpin);
-        return arma::cx_vec{totalSpin, holeSpin, electronSpin};
+    #pragma omp parallel for reduction(+:holeSpin, electronSpin)
+    for(int k = 0; k < nk; k++){
+        int start = k * npairs;
+        // Each thread makes its own copy of ck — no shared state
+        arma::cx_vec ck = coefs.subvec(start, start + npairs - 1);
+        holeSpin     -= arma::cdot(ck, spinHoleBlocks_[k]     * ck);
+        electronSpin += arma::cdot(ck, spinElectronBlocks_[k] * ck);
+    }
+
+    double totalSpin = real(holeSpin + electronSpin);
+    return arma::cx_vec{totalSpin, holeSpin, electronSpin};
 }
 
 
