@@ -1267,15 +1267,24 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         arma::cx_mat ApB = HBSres_ + HBScoup_;
         
         if(arma::chol(choleskyL_, AmB, "lower")){
-            // C = L^{-1} * (A+B) * L^{-†} is Hermitian positive definite
-            // Store for diagonalizeRaw — don't build full HBS_ at all
             choleskyLinv_ = arma::inv(arma::trimatl(choleskyL_));
             HBS_ = choleskyL_.t() * ApB * choleskyL_;
             useCholesky_ = true;
-            std::cout << "Using Cholesky reduction for full BSE. Dimension will be reduced by a factor of 2." << std::endl;
-        } 
+            
+            
+            //DIAGNOSTIC STUFF
+            // Armadillo "lower" gives AmB = L * L.t() or L.t() * L?
+            // arma::cx_mat recon_LLt = choleskyL_ * choleskyL_.t();
+            // arma::cx_mat recon_LtL = choleskyL_.t() * choleskyL_;
+            // double err_LLt = arma::norm(recon_LLt - AmB, "fro") / arma::norm(AmB, "fro");
+            // double err_LtL = arma::norm(recon_LtL - AmB, "fro") / arma::norm(AmB, "fro");
+            // std::cout << "Cholesky convention check:" << std::endl;
+            // std::cout << "  ||L*L† - AmB|| / ||AmB|| = " << err_LLt << std::endl;
+            // std::cout << "  ||L†*L - AmB|| / ||AmB|| = " << err_LtL << std::endl
+            // // --- End verification ---
+        }
         else {
-            // Fallback: A-B not positive definite (e.g. metallic system)
+            // Fallback: A-B not positive definite
             // Build full pseudo-Hermitian matrix as before
             
             
@@ -1384,43 +1393,48 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                 if(useCholesky_){
                     // Full BSE, Cholesky path:
                     // HBS_ already stores C = L^{-1}(A+B)L^{-†} (Hermitian, half dimension)
-                    // Eigenvalues of C are E^2 — all states returned
+                    // Eigenvalues of C are E^2
                     arma::eig_sym(eigval, eigvec, HBS);
+                    
+                    // get number of elements of eigval. same check for all diagonalization procedures
+                    int nall = (int)eigval.n_elem;
                     
                     eigval = arma::sqrt(arma::clamp(eigval, 0.0, eigval.max()));
                     
-                    int dim  = choleskyL_.n_rows;
-                    int nall = (int)eigval.n_elem;  // = dim
-                    
-                    arma::cx_mat XpY = choleskyLinv_.t() * eigvec;
-                    arma::cx_mat XmY = choleskyLinv_     * eigvec;
+                    int dim = choleskyL_.n_rows;
+                    arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
+                    arma::cx_mat XmY = choleskyL_        * eigvec;  // L * z
                     for(int i = 0; i < nall; i++){
                         XpY.col(i) /= std::sqrt(eigval(i));
                         XmY.col(i) *= std::sqrt(eigval(i));
                     }
-                    arma::cx_mat X = 0.5 * (XpY + XmY);  // dim × dim
-                    arma::cx_mat Y = 0.5 * (XpY - XmY);  // dim × dim
+                    arma::cx_mat X = 0.5 * (XpY + XmY);
+                    arma::cx_mat Y = 0.5 * (XpY - XmY);
                     
-                    // Antiresonant eigvec: [-Y*; X*], resonant eigvec: [X; Y]
                     arma::cx_mat eigvec_full(2*dim, 2*nall, arma::fill::zeros);
-                    
-                    eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::conj(Y);
-                    eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::conj(X);
-                    
+                    eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::fliplr(arma::conj(Y));
+                    eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
                     eigvec_full.submat(0,    nall,  dim-1,   2*nall-1) = X;
                     eigvec_full.submat(dim,  nall,  2*dim-1, 2*nall-1) = Y;
-                    
                     eigvec = eigvec_full;
                     
                     arma::vec eigval_full(2*nall);
                     eigval_full.subvec(0,     nall-1)   = -arma::flipud(eigval);
                     eigval_full.subvec(nall,  2*nall-1) =  eigval;
                     eigval = eigval_full;
+                    
+                    
+                    //DIAGNOSTIC cholesky eigvals should be mirrored
+                    // int nall2 = (int)eigval.n_elem / 2;
+                    // std::cout << "Cholesky eigval check (first 3 pairs):" << std::endl;
+                    // for(int i = 0; i < std::min(3, nall2); i++){
+                    //     std::cout << "  antires[" << i << "]=" << eigval(nall2 - i - 1)
+                    //     << "  res[" << i << "]=" << eigval(nall2 + i) << std::endl;
+                    // }
                 }
                 else{
-                    // Full BSE, Cholesky failed (non-positive-definite A-B):
+                    // Full BSE, Cholesky failed
                     // HBS_ is the full pseudo-Hermitian 2N x 2N matrix.
-                    // eig_gen + sort is the only general option here.
                     std::cout << "(non-Hermitian fallback)... " << std::flush;
                     arma::cx_vec cx_eigval;
                     arma::uvec   sorted_indices;
@@ -1431,13 +1445,9 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                     eigval = eigval(sorted_indices);
                     eigvec = eigvec.cols(sorted_indices);
                     
-                    // // Keep only positive eigenvalues (negative are the -E mirror states)
-                    // arma::uvec pos = arma::find(eigval > 0);
-                    // eigval = eigval(pos);
-                    // eigvec = eigvec.cols(pos);
+                    // std::cout << "Eigval order " << sorted_indices << std::flush;
                 }
                 
-                // std::cout << "Eigval order " << sorted_indices << std::flush;
             }
             else if(this->tammdancoff_){
                 arma::eig_sym(eigval, eigvec, HBS);
@@ -1466,35 +1476,31 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                 arma::cx_mat HBS_mutable = std::move(HBS_);
                 diagonalize_partial(eigval, eigvec, HBS_mutable, nstates);
                 
+                
+                int nall = (int)eigval.n_elem;
+                
                 eigval = arma::sqrt(arma::clamp(eigval, 0.0, eigval.max()));
                 
                 int dim = choleskyL_.n_rows;
-                arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * s
-                arma::cx_mat XmY = choleskyLinv_     * eigvec;  // L^{-1} * s
-                for(int i = 0; i < (int)eigval.n_elem; i++){
+                arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
+                arma::cx_mat XmY = choleskyL_        * eigvec;  // L * z
+                for(int i = 0; i < nall; i++){
                     XpY.col(i) /= std::sqrt(eigval(i));
                     XmY.col(i) *= std::sqrt(eigval(i));
                 }
                 arma::cx_mat X = 0.5 * (XpY + XmY);
                 arma::cx_mat Y = 0.5 * (XpY - XmY);
                 
-                // Antiresonant eigvec: [-Y*; X*], resonant eigvec: [X; Y]
-                arma::cx_mat eigvec_full(2*dim, 2*nstates, arma::fill::zeros);
-                
-                // Antiresonant block (columns 0..nstates-1)
-                eigvec_full.submat(0,    0,        dim-1,    nstates-1) = -arma::conj(Y);
-                eigvec_full.submat(dim,  0,        2*dim-1,  nstates-1) =  arma::conj(X);
-                
-                // Resonant block (columns nstates..2*nstates-1)
-                eigvec_full.submat(0,    nstates,  dim-1,    2*nstates-1) = X;
-                eigvec_full.submat(dim,  nstates,  2*dim-1,  2*nstates-1) = Y;
-                
+                arma::cx_mat eigvec_full(2*dim, 2*nall, arma::fill::zeros);
+                eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::fliplr(arma::conj(Y));
+                eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
+                eigvec_full.submat(0,    nall,  dim-1,   2*nall-1) = X;
+                eigvec_full.submat(dim,  nall,  2*dim-1, 2*nall-1) = Y;
                 eigvec = eigvec_full;
                 
-                // Expand eigval: negative mirror first, then positive
-                arma::vec eigval_full(2*nstates);
-                eigval_full.subvec(0,       nstates-1) = -arma::flipud(eigval);
-                eigval_full.subvec(nstates, 2*nstates-1) = eigval;
+                arma::vec eigval_full(2*nall);
+                eigval_full.subvec(0,     nall-1)   = -arma::flipud(eigval);
+                eigval_full.subvec(nall,  2*nall-1) =  eigval;
                 eigval = eigval_full;
             }
             else{
@@ -1512,38 +1518,34 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         }
         else{
             if(useCholesky_){
-                // Same Cholesky reduction works for Davidson:
+                
                 davidson_method(eigval, eigvec, HBS, nstates);
+                
+                
+                int nall = (int)eigval.n_elem;
                 
                 eigval = arma::sqrt(arma::clamp(eigval, 0.0, eigval.max()));
                 
                 int dim = choleskyL_.n_rows;
-                arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * s
-                arma::cx_mat XmY = choleskyLinv_     * eigvec;  // L^{-1} * s
-                for(int i = 0; i < (int)eigval.n_elem; i++){
+                arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
+                arma::cx_mat XmY = choleskyL_        * eigvec;  // L * z
+                for(int i = 0; i < nall; i++){
                     XpY.col(i) /= std::sqrt(eigval(i));
                     XmY.col(i) *= std::sqrt(eigval(i));
                 }
                 arma::cx_mat X = 0.5 * (XpY + XmY);
                 arma::cx_mat Y = 0.5 * (XpY - XmY);
                 
-                // Antiresonant eigvec: [-Y*; X*], resonant eigvec: [X; Y]
-                arma::cx_mat eigvec_full(2*dim, 2*nstates, arma::fill::zeros);
-                
-                // Antiresonant block (columns 0..nstates-1)
-                eigvec_full.submat(0,    0,        dim-1,    nstates-1) = -arma::conj(Y);
-                eigvec_full.submat(dim,  0,        2*dim-1,  nstates-1) =  arma::conj(X);
-                
-                // Resonant block (columns nstates..2*nstates-1)
-                eigvec_full.submat(0,    nstates,  dim-1,    2*nstates-1) = X;
-                eigvec_full.submat(dim,  nstates,  2*dim-1,  2*nstates-1) = Y;
-                
+                arma::cx_mat eigvec_full(2*dim, 2*nall, arma::fill::zeros);
+                eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::fliplr(arma::conj(Y));
+                eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
+                eigvec_full.submat(0,    nall,  dim-1,   2*nall-1) = X;
+                eigvec_full.submat(dim,  nall,  2*dim-1, 2*nall-1) = Y;
                 eigvec = eigvec_full;
                 
-                // Expand eigval: negative mirror first, then positive
-                arma::vec eigval_full(2*nstates);
-                eigval_full.subvec(0,       nstates-1) = -arma::flipud(eigval);
-                eigval_full.subvec(nstates, 2*nstates-1) = eigval;
+                arma::vec eigval_full(2*nall);
+                eigval_full.subvec(0,     nall-1)   = -arma::flipud(eigval);
+                eigval_full.subvec(nall,  2*nall-1) =  eigval;
                 eigval = eigval_full;
                 
             }
@@ -1563,7 +1565,7 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         if(!this->tammdancoff_){
             throw std::runtime_error(
                 "diagonalizeRaw(): Lanczos method is only supported with TDA. "
-                "Use method='diag' or method='davidson' for full BSE.");
+                "Use method='diag' or method='davidson/zheevr' for full BSE.");
         }
         
         arma::cx_vec cx_eigval;
@@ -1578,7 +1580,7 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
             std::cerr << "Warning: Lanczos returned significant imaginary eigenvalue "
             << "components (max=" << max_imag << "). "
             << "Results may be inaccurate for degenerate states. "
-            << "Consider using method='diag' or method='davidson'." << std::endl;
+            << "Consider using method='diag' or method='zheevr/davidson'." << std::endl;
         }
         eigval = arma::real(cx_eigval);
         
