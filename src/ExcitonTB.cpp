@@ -825,23 +825,22 @@ void ExcitonTB::initializeMotifFT(int i, const arma::mat& cells, potptr potentia
  * @param triangular Boolean to specify whether the Hamiltonian matrices are triangular (default = false).
  * @return void
  */ 
-void ExcitonTB::initializeResultsH0() {
-    arma::uword nTotalBands = bandList.n_elem;
+void ExcitonTB::initializeResultsH0(){
+    int nTotalBands = bandList.n_elem;
     double radius = arma::norm(system->bravaisLattice.row(0)) * cutoff_;
     arma::mat cells = system_->truncateSupercell(ncell, radius);
-    arma::uword nk = system->nk;
+    int nk = system->nk;
     int natoms = system->natoms;
-    arma::uword basisdim = system->basisdim;
-    
+    int basisdim = system->basisdim;
     this->eigvecKStack_  = arma::cx_cube(basisdim, nTotalBands, nk);
     this->eigvecKQStack_ = arma::cx_cube(basisdim, nTotalBands, nk);
     this->eigvalKStack_  = arma::mat(nTotalBands, nk);
     this->eigvalKQStack_ = arma::mat(nTotalBands, nk);
     this->ftMotifStack   = arma::cx_cube(natoms, natoms, system->meshBZ.n_rows);
     this->ftMotifQ       = arma::cx_mat(natoms, natoms);
-    if (this->selfenergy)
-        this->ftMotifQ3 = arma::cx_cube(natoms, natoms, system->meshBZ.n_rows);
-    
+    if(this->selfenergy){
+        this->ftMotifQ3 = arma::cx_cube(natoms, natoms, system->meshBZ.n_rows);      
+    }
     arma::vec auxEigVal(basisdim);
     arma::cx_mat auxEigvec(basisdim, basisdim);
     
@@ -850,10 +849,14 @@ void ExcitonTB::initializeResultsH0() {
     std::vector<arma::vec>    prevSpinZs,   prevSpinZsQ;
     std::vector<arma::vec>    prevEigvals,  prevEigvalsQ;
     
+    // Progress bar variables
+    int step = 1;
+    int displayNext = step;
+    int percent = 0;
     system_->calculateInverseReciprocalMatrix();
+    std::complex<double> imag(0, 1);
     std::cout << "Diagonalizing H0 for all k points... " << std::flush;
-    
-    for (arma::uword i = 0; i < nk; i++) {
+    for (int i = 0; i < nk; i++){
         arma::rowvec k = system->kpoints.row(i);
         system->solveBands(k, auxEigVal, auxEigvec);
         
@@ -862,28 +865,8 @@ void ExcitonTB::initializeResultsH0() {
                                auxEigvec, auxEigVal, bandTrackingThreshold_);
         }
         if (bandTracking_) {
-            // Sort within spin channels — same-spin bands always energy-ordered
-            std::vector<int> upIdx, downIdx;
-            for (arma::uword ib = 0; ib < basisdim; ib++) {
-                if (system->expectedSpinZValue(auxEigvec.col(ib)) > 0)
-                    upIdx.push_back(ib);
-                else
-                    downIdx.push_back(ib);
-            }
-            std::sort(upIdx.begin(), upIdx.end(),
-                      [&](int a, int b){ return auxEigVal(a) < auxEigVal(b); });
-            std::sort(downIdx.begin(), downIdx.end(),
-                      [&](int a, int b){ return auxEigVal(a) < auxEigVal(b); });
-            arma::cx_mat sortedEigvec(basisdim, basisdim);
-            arma::vec    sortedEigval(basisdim);
-            int col = 0;
-            for (int idx : upIdx)   { sortedEigvec.col(col) = auxEigvec.col(idx); sortedEigval(col++) = auxEigVal(idx); }
-            for (int idx : downIdx) { sortedEigvec.col(col) = auxEigvec.col(idx); sortedEigval(col++) = auxEigVal(idx); }
-            auxEigvec = sortedEigvec;
-            auxEigVal = sortedEigval;
-            
             arma::vec spinZ(basisdim);
-            for (arma::uword ib = 0; ib < basisdim; ib++)
+            for (int ib = 0; ib < basisdim; ib++)
                 spinZ(ib) = system->expectedSpinZValue(auxEigvec.col(ib));
             prevEigvecs.push_back(auxEigvec);
             prevSpinZs.push_back(spinZ);
@@ -896,10 +879,10 @@ void ExcitonTB::initializeResultsH0() {
         }
         
         auxEigvec = fixGlobalPhase(auxEigvec);
-        eigvalKStack_.col(i)   = auxEigVal(bandList);
+        eigvalKStack_.col(i) = auxEigVal(bandList);
         eigvecKStack_.slice(i) = auxEigvec.cols(bandList);
         
-        if (arma::norm(Q) != 0) {
+        if(arma::norm(Q) != 0){
             arma::rowvec kQ = system->kpoints.row(i) + Q;
             system->solveBands(kQ, auxEigVal, auxEigvec);
             
@@ -908,27 +891,8 @@ void ExcitonTB::initializeResultsH0() {
                                    auxEigvec, auxEigVal, bandTrackingThreshold_);
             }
             if (bandTracking_) {
-                std::vector<int> upIdx, downIdx;
-                for (arma::uword ib = 0; ib < basisdim; ib++) {
-                    if (system->expectedSpinZValue(auxEigvec.col(ib)) > 0)
-                        upIdx.push_back(ib);
-                    else
-                        downIdx.push_back(ib);
-                }
-                std::sort(upIdx.begin(), upIdx.end(),
-                          [&](int a, int b){ return auxEigVal(a) < auxEigVal(b); });
-                std::sort(downIdx.begin(), downIdx.end(),
-                          [&](int a, int b){ return auxEigVal(a) < auxEigVal(b); });
-                arma::cx_mat sortedEigvec(basisdim, basisdim);
-                arma::vec    sortedEigval(basisdim);
-                int col = 0;
-                for (int idx : upIdx)   { sortedEigvec.col(col) = auxEigvec.col(idx); sortedEigval(col++) = auxEigVal(idx); }
-                for (int idx : downIdx) { sortedEigvec.col(col) = auxEigvec.col(idx); sortedEigval(col++) = auxEigVal(idx); }
-                auxEigvec = sortedEigvec;
-                auxEigVal = sortedEigval;
-                
                 arma::vec spinZQ(basisdim);
-                for (arma::uword ib = 0; ib < basisdim; ib++)
+                for (int ib = 0; ib < basisdim; ib++)
                     spinZQ(ib) = system->expectedSpinZValue(auxEigvec.col(ib));
                 prevEigvecsQ.push_back(auxEigvec);
                 prevSpinZsQ.push_back(spinZQ);
@@ -941,35 +905,35 @@ void ExcitonTB::initializeResultsH0() {
             }
             
             auxEigvec = fixGlobalPhase(auxEigvec);
-            eigvalKQStack_.col(i)  = auxEigVal(bandList);
+            eigvalKQStack_.col(i) = auxEigVal(bandList);
             eigvecKQStack_.slice(i) = auxEigvec.cols(bandList);
         }
-        else {
+        else{
             eigvecKQStack_.slice(i) = eigvecKStack_.slice(i);
-            eigvalKQStack_.col(i)   = eigvalKStack_.col(i);
-        }
-    }
+            eigvalKQStack_.col(i) = eigvalKStack_.col(i);
+        };
+    };
     std::cout << "Done" << std::endl;
-    
-    if (this->mode == "realspace") {
+    if(this->mode == "realspace"){
         std::cout << "Computing lattice Fourier transform... " << std::flush;
         potptr directPotential = selectPotential(this->potential_);
         #pragma omp parallel for
-        for (unsigned int i = 0; i < system->meshBZ.n_rows; i++) {
+        for (unsigned int i = 0; i < system->meshBZ.n_rows; i++){
             initializeMotifFT(i, cells, directPotential);
-            if (this->selfenergy) {
-                if (arma::norm(Q) != 0) {
+            if(this->selfenergy){
+                if(arma::norm(Q) != 0){
                     potptr selfenergyPotential = selectPotential(this->selfenergyPotential_);
                     this->ftMotifQ3.slice(i) = motifFTMatrix(system->kpoints.row(i) - this->Q, cells, selfenergyPotential);
-                } else {
+                }
+                else {
                     potptr selfenergyPotential = selectPotential(this->selfenergyPotential_);
                     this->ftMotifQ3.slice(i) = this->ftMotifStack.slice(i);
-                }
+                };
             }
         }
         std::cout << "Done\n" << std::endl;
     }
-    if (this->exchange) {
+    if(this->exchange){
         potptr exchangePotential = selectPotential(this->exchangePotential_);
         this->ftMotifQ = motifFTMatrix(this->Q, cells, exchangePotential);
     }
