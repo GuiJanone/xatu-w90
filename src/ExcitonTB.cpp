@@ -76,8 +76,8 @@ void ExcitonTB::initializeExcitonAttributes(int ncell, const arma::ivec& bands,
  */
 void ExcitonTB::initializeExcitonAttributes(const ExcitonConfiguration& cfg){
 
-    int ncell        = cfg.excitonInfo.ncell;
-    int nbands       = cfg.excitonInfo.nbands;
+    uint64_t ncell        = cfg.excitonInfo.ncell;
+    uint64_t nbands       = cfg.excitonInfo.nbands;
     arma::ivec bands = cfg.excitonInfo.bands;
     arma::rowvec parameters = arma::conv_to<arma::rowvec>::from(join_cols(cfg.excitonInfo.eps, cfg.excitonInfo.hubbardU));
     arma::rowvec Q   = cfg.excitonInfo.Q;
@@ -866,8 +866,9 @@ void ExcitonTB::initializeResultsH0(){
         }
         if (bandTracking_) {
             arma::vec spinZ(basisdim);
-            for (int ib = 0; ib < basisdim; ib++)
+            for (int ib = 0; ib < basisdim; ib++){
                 spinZ(ib) = system->expectedSpinZValue(auxEigvec.col(ib));
+            }
             prevEigvecs.push_back(auxEigvec);
             prevSpinZs.push_back(spinZ);
             prevEigvals.push_back(auxEigVal);
@@ -876,7 +877,31 @@ void ExcitonTB::initializeResultsH0(){
                 prevSpinZs.erase(prevSpinZs.begin());
                 prevEigvals.erase(prevEigvals.begin());
             }
+            if (i == 0) {
+                std::cout << "Band tracking active, checking spin consistency..." << std::endl;
+                std::cout << "basisdim=" << basisdim << " nbands=" << bandList.n_elem << std::endl;
+                for (int ib = 0; ib < basisdim; ib++) {
+                    std::cout << "  band=" << ib 
+                    << " Sz=" << system->expectedSpinZValue(auxEigvec.col(ib))
+                    << " Eval=" << auxEigVal(ib) << std::endl;
+                }
+            }
+            
+            for (int ib = 0; ib < basisdim - 2; ib++) {
+                double szA = system->expectedSpinZValue(auxEigvec.col(ib));
+                double szB = system->expectedSpinZValue(auxEigvec.col(ib + 2));
+                if (std::abs(szA - szB) < 0.1) {
+                    if (auxEigVal(ib) > auxEigVal(ib + 2) + 1e-6) {
+                        std::cerr << "WARNING: energy inversion at k=" << i
+                        << " bands " << ib << "," << ib + 2
+                        << " Eval=" << auxEigVal(ib)
+                        << "," << auxEigVal(ib + 2) << std::endl;
+                    }
+                }
+            }
         }
+        
+        
         
         auxEigvec = fixGlobalPhase(auxEigvec);
         eigvalKStack_.col(i) = auxEigVal(bandList);
@@ -892,8 +917,9 @@ void ExcitonTB::initializeResultsH0(){
             }
             if (bandTracking_) {
                 arma::vec spinZQ(basisdim);
-                for (int ib = 0; ib < basisdim; ib++)
+                for (int ib = 0; ib < basisdim; ib++){
                     spinZQ(ib) = system->expectedSpinZValue(auxEigvec.col(ib));
+                }
                 prevEigvecsQ.push_back(auxEigvec);
                 prevSpinZsQ.push_back(spinZQ);
                 prevEigvalsQ.push_back(auxEigVal);
@@ -1099,13 +1125,13 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         uint64_t j = basisDimBSE - 1 - ii + m*(m+1)/2;
         
         uint64_t k_index = basisStates(i, 2);
-        int v = bandToIndex[basisStates(i, 0)];
-        int c = bandToIndex[basisStates(i, 1)];
+        uint64_t v = bandToIndex[basisStates(i, 0)];
+        uint64_t c = bandToIndex[basisStates(i, 1)];
         uint64_t kQ_index = k_index;
         
         uint64_t k2_index = basisStates(j, 2);
-        int v2 = bandToIndex[basisStates(j, 0)];
-        int c2 = bandToIndex[basisStates(j, 1)];
+        uint64_t v2 = bandToIndex[basisStates(j, 0)];
+        uint64_t c2 = bandToIndex[basisStates(j, 1)];
         uint64_t k2Q_index = k2_index;
         // Using the atomic gauge
         if(gauge == "atomic"){
@@ -1231,12 +1257,17 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         arma::cx_mat ApB = HBSres_ + HBScoup_;
         
         if(arma::chol(choleskyL_, AmB, "lower")){
+            // double minDiag = arma::min(arma::abs(choleskyL_.diag()));
+            // double maxDiag = arma::max(arma::abs(choleskyL_.diag()));
+            // std::cout << "L diag range: [" << minDiag << ", " << maxDiag << "], ratio = " << maxDiag/minDiag << std::endl;
+            
+            
             choleskyLinv_ = arma::inv(arma::trimatl(choleskyL_));
             HBS_ = choleskyL_.t() * ApB * choleskyL_;
             useCholesky_ = true;
             
             
-            //DIAGNOSTIC STUFF
+            // DIAGNOSTIC STUFF
             // Armadillo "lower" gives AmB = L * L.t() or L.t() * L?
             // arma::cx_mat recon_LLt = choleskyL_ * choleskyL_.t();
             // arma::cx_mat recon_LtL = choleskyL_.t() * choleskyL_;
@@ -1244,8 +1275,8 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
             // double err_LtL = arma::norm(recon_LtL - AmB, "fro") / arma::norm(AmB, "fro");
             // std::cout << "Cholesky convention check:" << std::endl;
             // std::cout << "  ||L*L† - AmB|| / ||AmB|| = " << err_LLt << std::endl;
-            // std::cout << "  ||L†*L - AmB|| / ||AmB|| = " << err_LtL << std::endl
-            // // --- End verification ---
+            // std::cout << "  ||L†*L - AmB|| / ||AmB|| = " << err_LtL << std::endl;
+            // --- End verification ---
         }
         else {
             // Fallback: A-B not positive definite
@@ -1364,10 +1395,21 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                     int nall = (int)eigval.n_elem;
                     
                     eigval = arma::sqrt(arma::clamp(eigval, 0.0, eigval.max()));
+                    // double floorThreshold = std::max(1e-12, 1e-10 * eigval.max());
+                    // arma::uword nBad = arma::find(eigval < floorThreshold).eval().n_elem;
+                    // if(nBad > 0){
+                    //     std::cerr << "Warning: " << nBad << " exciton state(s) have near-zero excitation "
+                    //     "energy (< " << floorThreshold << " eV); X/Y decomposition is "
+                    //     "numerically marginal for these states." << std::endl;
+                    // }
+                    // eigval = arma::clamp(eigval, floorThreshold, eigval.max());
+                    // eigval = arma::sqrt(eigval);
                     
                     int dim = choleskyL_.n_rows;
-                    arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
-                    arma::cx_mat XmY = choleskyL_        * eigvec;  // L * z
+                    // arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
+                    arma::cx_mat XpY = choleskyL_        * eigvec;  // L * v       (= X+Y, before scaling)
+                    arma::cx_mat XmY = choleskyLinv_.t() * eigvec;  // L^{-†} * v  (= X-Y, before scaling)
+                                                    
                     for(int i = 0; i < nall; i++){
                         XpY.col(i) /= std::sqrt(eigval(i));
                         XmY.col(i) *= std::sqrt(eigval(i));
@@ -1375,6 +1417,12 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                     arma::cx_mat X = 0.5 * (XpY + XmY);
                     arma::cx_mat Y = 0.5 * (XpY - XmY);
                     
+                    // std::cout <<"\n"<< arma::norm(Y)/arma::norm(X)<<"\n"<< std::endl;
+                    // for(int i = 0; i < std::min(nall, 5); i++){
+                    //     double xn = arma::norm(X.col(i)); // magnitude of X for state i
+                    //     double yn = arma::norm(Y.col(i));
+                    //     std::cout << "state " << i << ": X'X-Y'Y = " << xn*xn - yn*yn << std::endl;
+                    // }
                     arma::cx_mat eigvec_full(2*dim, 2*nall, arma::fill::zeros);
                     eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::fliplr(arma::conj(Y));
                     eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
@@ -1409,6 +1457,10 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                     eigval = eigval(sorted_indices);
                     eigvec = eigvec.cols(sorted_indices);
                     
+                    // std::cout << "eig_gen state 0: |X|^2+|Y|^2 = " 
+                    // << arma::norm(eigvec.col(0).head(basisDimBSE/2))*arma::norm(eigvec.col(0).head(basisDimBSE/2))
+                    // + arma::norm(eigvec.col(0).tail(basisDimBSE/2))*arma::norm(eigvec.col(0).tail(basisDimBSE/2))
+                    // << std::endl;
                     // std::cout << "Eigval order " << sorted_indices << std::flush;
                 }
                 
@@ -1444,10 +1496,22 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                 int nall = (int)eigval.n_elem;
                 
                 eigval = arma::sqrt(arma::clamp(eigval, 0.0, eigval.max()));
+                // double floorThreshold = std::max(1e-12, 1e-10 * eigval.max());
+                // arma::uword nBad = arma::find(eigval < floorThreshold).eval().n_elem;
+                // if(nBad > 0){
+                //     std::cerr << "Warning: " << nBad << " exciton state(s) have near-zero excitation "
+                //     "energy (< " << floorThreshold << " eV); X/Y decomposition is "
+                //     "numerically marginal for these states." << std::endl;
+                // }
+                // eigval = arma::clamp(eigval, floorThreshold, eigval.max());
+                // eigval = arma::sqrt(eigval);
                 
                 int dim = choleskyL_.n_rows;
-                arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
-                arma::cx_mat XmY = choleskyL_        * eigvec;  // L * z
+                // arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
+
+                arma::cx_mat XpY = choleskyL_        * eigvec;  // L * v       (= X+Y, before scaling)
+                arma::cx_mat XmY = choleskyLinv_.t() * eigvec;  // L^{-†} * v  (= X-Y, before scaling)
+                
                 for(int i = 0; i < nall; i++){
                     XpY.col(i) /= std::sqrt(eigval(i));
                     XmY.col(i) *= std::sqrt(eigval(i));
@@ -1489,10 +1553,22 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                 int nall = (int)eigval.n_elem;
                 
                 eigval = arma::sqrt(arma::clamp(eigval, 0.0, eigval.max()));
+                // double floorThreshold = std::max(1e-12, 1e-10 * eigval.max());
+                // arma::uword nBad = arma::find(eigval < floorThreshold).eval().n_elem;
+                // if(nBad > 0){
+                //     std::cerr << "Warning: " << nBad << " exciton state(s) have near-zero excitation "
+                //     "energy (< " << floorThreshold << " eV); X/Y decomposition is "
+                //     "numerically marginal for these states." << std::endl;
+                // }
+                // eigval = arma::clamp(eigval, floorThreshold, eigval.max());
+                // eigval = arma::sqrt(eigval);
                 
                 int dim = choleskyL_.n_rows;
-                arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
-                arma::cx_mat XmY = choleskyL_        * eigvec;  // L * z
+                // arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
+                
+                arma::cx_mat XpY = choleskyL_        * eigvec;  // L * v       (= X+Y, before scaling)
+                arma::cx_mat XmY = choleskyLinv_.t() * eigvec;  // L^{-†} * v  (= X-Y, before scaling)
+                
                 for(int i = 0; i < nall; i++){
                     XpY.col(i) /= std::sqrt(eigval(i));
                     XmY.col(i) *= std::sqrt(eigval(i));

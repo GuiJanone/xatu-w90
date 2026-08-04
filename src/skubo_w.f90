@@ -307,6 +307,8 @@ subroutine exciton_oscillator_strength(nR,norb,norb_ex,nv_ex,nc_ex,nv,scissor,Rv
   dimension rky(npointstotal)
   dimension rkz(npointstotal)
   integer ldfk
+  integer :: dimX
+  logical :: has_y_block
   dimension fk_ex(ldfk,norb_ex)
   dimension e_ex(norb_ex)
   dimension B(nR, norb*norb, 3)
@@ -397,6 +399,8 @@ subroutine exciton_oscillator_strength(nR,norb,norb_ex,nv_ex,nc_ex,nv,scissor,Rv
 
   norb_ex_band=nv_ex*nc_ex
   norb_ex_cut=norb_ex
+  dimX = norb_ex_band*npointstotal
+  has_y_block = (ldfk == 2*dimX)
 
   vme_ex=0.0d0
 
@@ -425,7 +429,7 @@ subroutine exciton_oscillator_strength(nR,norb,norb_ex,nv_ex,nc_ex,nv,scissor,Rv
   !$OMP PRIVATE(rkxp,rkyp,rkzp) &
   !$OMP PRIVATE(hkernel,skernel,sderkernel,hderkernel,akernel,pgaugekernel) &
   !$OMP PRIVATE(hk_ev,e,pgauge,vjseudoa,vjseudob) &
-  !$OMP PRIVATE(nj,iex,ic,iv,j) &
+  !$OMP PRIVATE(nj,iex,ic,iv,j,jY) &
   !$OMP SHARED(vme,vme_ex,eigvec_stack,eigval_stack,fk_ex,sderhop,hderhop,rhop,shop,hhop,Rvec,rkx,rky,rkz) &
   !$OMP SCHEDULE(dynamic)
   do ibz=1,npointstotal
@@ -465,6 +469,11 @@ subroutine exciton_oscillator_strength(nR,norb,norb_ex,nv_ex,nc_ex,nv,scissor,Rv
               j = nc_ex*nv_ex*(ibz-1) + nv_ex*(ic-1) + iv
               vme_ex(nj,iex,1) = vme_ex(nj,iex,1) + fk_ex(j,iex)*vme(ibz,nj,iv,ic+nv_ex)
               vme_ex(nj,iex,2) = vme_ex(nj,iex,2) + fk_ex(j,iex)*vme(ibz,nj,ic+nv_ex,iv)
+              if (has_y_block) then
+                jY = dimX + j
+                vme_ex(nj,iex,1) = vme_ex(nj,iex,1) + fk_ex(jY,iex)*vme(ibz,nj,ic+nv_ex,iv)
+                vme_ex(nj,iex,2) = vme_ex(nj,iex,2) + fk_ex(jY,iex)*vme(ibz,nj,iv,ic+nv_ex)
+              end if
             end do
           end do
         end do

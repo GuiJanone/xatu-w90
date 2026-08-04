@@ -1,6 +1,6 @@
 #ifndef RESULT_TPP
 #define RESULT_TPP
-
+#include <hdf5.h>
 #include "xatu/Result.hpp"
 #include <complex>
 #include <cinttypes>
@@ -25,8 +25,8 @@ Result<T>::Result(Exciton<T>* exciton, arma::vec& eigval, arma::cx_mat& eigvec) 
  */
 template <typename T>
 double Result<T>::kineticEnergy(int stateindex){
-    arma::cx_vec coefs = eigvec.col(resonantOffset() + stateindex)
-    .subvec(0, exciton->excitonbasisdim - 1);
+    arma::cx_vec X, Y;
+    splitXY(resonantOffset() + stateindex, X, Y);
     arma::vec HK = arma::zeros(exciton->excitonbasisdim);
 
     for (uint64_t n = 0; n < exciton->excitonbasisdim; n++){
@@ -38,7 +38,7 @@ double Result<T>::kineticEnergy(int stateindex){
         HK(n) = exciton->eigvalKQStack.col(kQ_index)(c) - exciton->eigvalKStack.col(k_index)(v);
     }
 
-    std::complex<double> energy = arma::cdot(coefs, HK % coefs);
+    std::complex<double> energy = arma::cdot(X, HK % X) - arma::cdot(Y, HK % Y);
     return energy.real();
 }
 
@@ -148,8 +148,15 @@ arma::cx_vec Result<T>::spinX(int stateIndex){
     // stateIndex is absolute (caller applies resonantOffset before passing).
     // subvec extracts only the resonant (X) block — the check inside
     // spinX(const arma::cx_vec&) for full BSE is therefore redundant.
-    arma::cx_vec coefs = eigvec.col(stateIndex).subvec(0, exciton->excitonbasisdim - 1);
-    return spinX(coefs);
+    
+    // arma::cx_vec coefs = eigvec.col(stateIndex).subvec(0, exciton->excitonbasisdim - 1);
+    // return spinX(coefs);
+    arma::cx_vec X, Y;
+    splitXY(stateIndex, X, Y);
+    arma::cx_vec resX = spinX(X);
+    arma::cx_vec resY = spinX(Y);
+    return resX - resY;
+    
 }
 
 /* -------------------- Output -------------------- */
@@ -163,20 +170,27 @@ arma::cx_vec Result<T>::spinX(int stateIndex){
  * @param textfile Pointer to file to write the reciprocal amplitude.
  */
 template <typename T>
-void Result<T>::writeReciprocalAmplitude(const arma::cx_vec& statecoefs, FILE* textfile){
+void Result<T>::writeReciprocalAmplitude(const arma::cx_vec& X, const arma::cx_vec& Y, FILE* textfile){
     fprintf(textfile, "kx\tky\tkz\tProb.\n");
     int nbandsCombinations = exciton->conductionBands.n_elem * exciton->valenceBands.n_elem;
     for (arma::uword i = 0; i < system->kpoints.n_rows; i++){
         double coef = 0;
         for(int nband = 0; nband < nbandsCombinations; nband++){
-            coef += abs(statecoefs(nbandsCombinations*i + nband))*
-                    abs(statecoefs(nbandsCombinations*i + nband));
+            coef += std::norm(X(nbandsCombinations*i + nband))
+            - std::norm(Y(nbandsCombinations*i + nband));
         };
-        coef /= arma::norm(system->kpoints.row(1) - system->kpoints.row(0)); // L2 norm instead of l2
+        coef /= arma::norm(system->kpoints.row(1) - system->kpoints.row(0));
         fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8le\n", 
-                    system->kpoints.row(i)(0), system->kpoints.row(i)(1), system->kpoints.row(i)(2), coef);
+                system->kpoints.row(i)(0), system->kpoints.row(i)(1), system->kpoints.row(i)(2), coef);
     };
     fprintf(textfile, "#\n");
+}
+
+template <typename T>
+void Result<T>::writeReciprocalAmplitude(const arma::cx_vec& statecoefs, FILE* textfile){
+    // Backward-compatible entry point: no Y block available/assumed (TDA-style call).
+    arma::cx_vec Y = arma::zeros<arma::cx_vec>(statecoefs.n_elem);
+    writeReciprocalAmplitude(statecoefs, Y, textfile);
 }
 
 /**
@@ -195,8 +209,9 @@ void Result<T>::writeReciprocalAmplitude(int stateindex, FILE* textfile){
             "writeReciprocalAmplitude: stateindex " + std::to_string(stateindex) +
             " out of range [0, " + std::to_string(navail) + ")");
     }
-    arma::cx_vec statecoefs = eigvec.col(col).subvec(0, exciton->excitonbasisdim - 1);
-    writeReciprocalAmplitude(statecoefs, textfile);
+    arma::cx_vec X, Y;
+    splitXY(col, X, Y);
+    writeReciprocalAmplitude(X, Y, textfile);
 }
 
 /**
@@ -207,17 +222,17 @@ void Result<T>::writeReciprocalAmplitude(int stateindex, FILE* textfile){
  * @param textfile Pointer to file. 
  */
 template <typename T>
-void Result<T>::writeExtendedReciprocalAmplitude(const arma::cx_vec& statecoefs, FILE* textfile){
+void Result<T>::writeExtendedReciprocalAmplitude(const arma::cx_vec& X, const arma::cx_vec& Y, FILE* textfile){
     int nbandsCombinations = exciton->conductionBands.n_elem * exciton->valenceBands.n_elem;
     double boxLimit = boundingBoxBZ();
-
+    
     for (arma::uword i = 0; i < system->kpoints.n_rows; i++){
         double coef = 0;
         for(int nband = 0; nband < nbandsCombinations; nband++){
-            coef += abs(statecoefs(nbandsCombinations*i + nband))*
-                    abs(statecoefs(nbandsCombinations*i + nband));
+            coef += std::norm(X(nbandsCombinations*i + nband))
+            - std::norm(Y(nbandsCombinations*i + nband));
         };
-        coef /= arma::norm(system->kpoints.row(1) - system->kpoints.row(0)); // L2 norm instead of l2
+        coef /= arma::norm(system->kpoints.row(1) - system->kpoints.row(0));
         arma::mat cells = system->generateCombinations(3, system->ndim, true);
         for(unsigned int n = 0; n < cells.n_rows; n++){
             arma::rowvec cell = arma::rowvec(3);
@@ -227,12 +242,17 @@ void Result<T>::writeExtendedReciprocalAmplitude(const arma::cx_vec& statecoefs,
             arma::rowvec displaced_k = system->kpoints.row(i) + cell;
             if(abs(displaced_k(0)) < boxLimit && abs(displaced_k(1)) < boxLimit){
                 fprintf(textfile, "%11.8lf\t%11.8lf\t%11.8lf\t%11.8le\n", 
-                    displaced_k(0), displaced_k(1), displaced_k(2), coef);
+                        displaced_k(0), displaced_k(1), displaced_k(2), coef);
             }
         }
-        
     };
     fprintf(textfile, "#\n");
+}
+
+template <typename T>
+void Result<T>::writeExtendedReciprocalAmplitude(const arma::cx_vec& statecoefs, FILE* textfile){
+    arma::cx_vec Y = arma::zeros<arma::cx_vec>(statecoefs.n_elem);
+    writeExtendedReciprocalAmplitude(statecoefs, Y, textfile);
 }
 
 /**
@@ -251,12 +271,12 @@ void Result<T>::writeExtendedReciprocalAmplitude(int stateindex, FILE* textfile)
             "writeExtendedReciprocalAmplitude: stateindex " + std::to_string(stateindex) +
             " out of range [0, " + std::to_string(navail) + ")");
     }
-    arma::cx_vec statecoefs = eigvec.col(col).subvec(0, exciton->excitonbasisdim - 1);
-    writeExtendedReciprocalAmplitude(statecoefs, textfile);
+    arma::cx_vec X, Y;
+    splitXY(col, X, Y);
+    writeExtendedReciprocalAmplitude(X, Y, textfile);
 }
 
 
-// Add inside Result<T> class:
 template <typename T>
 int Result<T>::resonantOffset() const {
     if(exciton->TDA) return 0;
@@ -267,6 +287,25 @@ int Result<T>::resonantOffset() const {
         return (int)eigval.n_elem / 2;
     }
     return 0;  // sparse/davidson without Cholesky: all positive
+}
+
+/**
+ * Splits the eigenvector column at absolute index `col` into its resonant (X) and
+ * anti-resonant (Y) blocks. For TDA, or when this state has no Y block, Y is returned
+ * as an all-zero vector of the same length as X.
+ */
+template <typename T>
+void Result<T>::splitXY(int col, arma::cx_vec& X, arma::cx_vec& Y) const {
+    uint64_t dimX = exciton->excitonbasisdim;
+    arma::cx_vec full = eigvec.col(col);
+    if (!exciton->TDA && full.n_elem == 2*dimX){
+        X = full.subvec(0, dimX - 1);
+        Y = full.subvec(dimX, 2*dimX - 1);
+    }
+    else {
+        X = full.subvec(0, dimX - 1);
+        Y = arma::zeros<arma::cx_vec>(dimX);
+    }
 }
 
 /**
@@ -383,39 +422,44 @@ void Result<T>::writeExtendedPhase(int stateindex, FILE* textfile){
  * @return void
  */
 template <typename T>
-void Result<T>::writeRealspaceAmplitude(const arma::cx_vec& statecoefs, int holeIndex,
-                                     const arma::rowvec& holeCell, FILE* textfile, int ncells){
-
+void Result<T>::writeRealspaceAmplitude(const arma::cx_vec& X, const arma::cx_vec& Y, int holeIndex,
+                                        const arma::rowvec& holeCell, FILE* textfile, int ncells){
+    
     arma::rowvec holePosition = system->motif.row(holeIndex).subvec(0, 2) + holeCell;
     fprintf(textfile, "%11.8lf\t%11.8lf\t%14.11le\n", holePosition(0), holePosition(1), 0.0);
-
+    
     double radius = arma::norm(system->bravaisLattice.row(0)) * ncells;
     arma::mat cellCombinations = system->truncateSupercell(exciton->ncell, radius);
     arma::vec coefs = arma::zeros(cellCombinations.n_rows*system->motif.n_rows);
     arma::uword it = 0;
-
-    // Compute probabilities
+    
     for(unsigned int cellIndex = 0; cellIndex < cellCombinations.n_rows; cellIndex++){
         arma::rowvec cell = cellCombinations.row(cellIndex);
         for (unsigned int atomIndex = 0; atomIndex < system->motif.n_rows; atomIndex++){
-            //coefs(it) = atomCoefficientSquared(atomIndex, cell, holeCell, RScoefs);
-            coefs(it) = realSpaceWavefunction(statecoefs, atomIndex, holeIndex, cell, holeCell);
+            coefs(it) = realSpaceWavefunction(X, atomIndex, holeIndex, cell, holeCell)
+            - realSpaceWavefunction(Y, atomIndex, holeIndex, cell, holeCell);
             it++;
         }
     }
-
-    // Write probabilities to file
+    
     it = 0;
     for(unsigned int cellIndex = 0; cellIndex < cellCombinations.n_rows; cellIndex++){
         arma::rowvec cell = cellCombinations.row(cellIndex);
         for(unsigned int atomIndex = 0; atomIndex < system->motif.n_rows; atomIndex++){
             arma::rowvec position = system->motif.row(atomIndex).subvec(0, 2) + cell;
             fprintf(textfile, "%11.8lf\t%11.8lf\t%14.11le\n",
-                            position(0), position(1), coefs(it));
+                    position(0), position(1), coefs(it));
             it++;
         }
     }
     fprintf(textfile, "#\n");                              
+}
+
+template <typename T>
+void Result<T>::writeRealspaceAmplitude(const arma::cx_vec& statecoefs, int holeIndex,
+                                        const arma::rowvec& holeCell, FILE* textfile, int ncells){
+    arma::cx_vec Y = arma::zeros<arma::cx_vec>(statecoefs.n_elem);
+    writeRealspaceAmplitude(statecoefs, Y, holeIndex, holeCell, textfile, ncells);
 }
 
 /**
@@ -439,9 +483,9 @@ void Result<T>::writeRealspaceAmplitude(int stateindex, int holeIndex,
             " out of range (available resonant states: " +
             std::to_string((int)eigvec.n_cols - resonantOffset()) + ")");
     }
-    // Extract only the resonant (X) block for real-space computation
-    arma::cx_vec statecoefs = eigvec.col(col).subvec(0, exciton->excitonbasisdim - 1);
-    writeRealspaceAmplitude(statecoefs, holeIndex, holeCell, textfile, ncells);
+    arma::cx_vec X, Y;
+    splitXY(col, X, Y);
+    writeRealspaceAmplitude(X, Y, holeIndex, holeCell, textfile, ncells);
 }
 
 /** 
@@ -529,13 +573,27 @@ void Result<T>::writeSpin(int n, FILE* textfile){
  * @param stateindex Index of exciton.
  * @return Index of kpoint where the exciton peaks.
  */ 
+// template <typename T>
+// int Result<T>::findExcitonPeak(int stateindex){
+//     uint64_t index = eigvec.col(stateindex).index_max();
+//     int bandCombinations = exciton->valenceBands.n_elem*exciton->conductionBands.n_elem;
+//     index = (int)index/bandCombinations;
+//     return index;
+// }
 template <typename T>
 int Result<T>::findExcitonPeak(int stateindex){
-    uint64_t index = eigvec.col(stateindex).index_max();
+    arma::cx_vec X, Y;
+    splitXY(stateindex, X, Y);
     int bandCombinations = exciton->valenceBands.n_elem*exciton->conductionBands.n_elem;
-    index = (int)index/bandCombinations;
-    return index;
+    int nk = exciton->excitonbasisdim / bandCombinations;
+    arma::vec density(nk);
+    for(int i = 0; i < nk; i++){
+        density(i) = arma::norm(X.subvec(i*bandCombinations,(i+1)*bandCombinations-1)) 
+        - arma::norm(Y.subvec(i*bandCombinations,(i+1)*bandCombinations-1));
+    }
+    return density.index_max();
 }
+
 
 /**
  * Routine to determine the size of a box that contains the reciprocal unit cell as given

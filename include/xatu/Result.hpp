@@ -47,9 +47,9 @@ class Result {
                                      const arma::rowvec&, const arma::rowvec&) = 0;
 
         // Output and plotting
-        void writeReciprocalAmplitude(const arma::cx_vec&, FILE*);
+        // void writeReciprocalAmplitude(const arma::cx_vec&, FILE*);
         void writeReciprocalAmplitude(int, FILE*);
-        void writeExtendedReciprocalAmplitude(const arma::cx_vec&, FILE*);
+        // void writeExtendedReciprocalAmplitude(const arma::cx_vec&, FILE*);
         void writeExtendedReciprocalAmplitude(int, FILE*);
         void writePhase(const arma::cx_vec&, FILE*);
         void writePhase(int, FILE*);
@@ -59,11 +59,21 @@ class Result {
         void writeStates(FILE*, int n = 0);
         void writeSpin(int, FILE*);
         void writeRealspaceAmplitude(int, int, const arma::rowvec&, FILE*, int);
-        virtual void writeRealspaceAmplitude(const arma::cx_vec&, int, const arma::rowvec&, FILE*, int) = 0;
+        // virtual void writeRealspaceAmplitude(const arma::cx_vec&, int, const arma::rowvec&, FILE*, int) = 0;
         virtual void writeAbsorptionSpectrum() = 0;
         void writeSelfEnergy(FILE*);
         
         int resonantOffset() const;
+        void splitXY(int, arma::cx_vec&, arma::cx_vec&) const;
+        
+        void writeReciprocalAmplitude(const arma::cx_vec&, const arma::cx_vec&, FILE*);
+        void writeReciprocalAmplitude(const arma::cx_vec&, FILE*); // TDA-compat wrapper
+        
+        void writeExtendedReciprocalAmplitude(const arma::cx_vec&, const arma::cx_vec&, FILE*);
+        void writeExtendedReciprocalAmplitude(const arma::cx_vec&, FILE*); // TDA-compat wrapper
+        
+        virtual void writeRealspaceAmplitude(const arma::cx_vec&, const arma::cx_vec&, int, const arma::rowvec&, FILE*, int);
+        virtual void writeRealspaceAmplitude(const arma::cx_vec&, int, const arma::rowvec&, FILE*, int); // TDA-compat wrapper
 
     protected:
         int findExcitonPeak(int);
