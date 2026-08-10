@@ -1257,15 +1257,16 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         arma::cx_mat ApB = HBSres_ + HBScoup_;
         
         if(arma::chol(choleskyL_, AmB, "lower")){
-            // double minDiag = arma::min(arma::abs(choleskyL_.diag()));
-            // double maxDiag = arma::max(arma::abs(choleskyL_.diag()));
-            // std::cout << "L diag range: [" << minDiag << ", " << maxDiag << "], ratio = " << maxDiag/minDiag << std::endl;
-            
+                        
+            HBSres_.reset();
+            HBScoup_.reset();
             
             choleskyLinv_ = arma::inv(arma::trimatl(choleskyL_));
             HBS_ = choleskyL_.t() * ApB * choleskyL_;
             useCholesky_ = true;
             
+            AmB.reset();
+            ApB.reset();
             
             // DIAGNOSTIC STUFF
             // Armadillo "lower" gives AmB = L * L.t() or L.t() * L?
@@ -1281,6 +1282,10 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         else {
             // Fallback: A-B not positive definite
             // Build full pseudo-Hermitian matrix as before
+            AmB.reset();
+            ApB.reset();
+            choleskyL_.reset();
+            choleskyLinv_.reset();
             
             
             std::cout << "Warning: Cholesky reduction failed (A-B not positive definite). "
@@ -1288,6 +1293,9 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
             HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ),
                               join_cols( HBScoup_, -(HBSres_.t()) ) );
             useCholesky_ = false;
+            HBSres_.reset();
+            HBScoup_.reset();
+            
         }
     }
     else if(this->tammdancoff_){
@@ -1351,6 +1359,13 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
             + 8.0  * (double)basisDimBSE * 24.0         // LRWORK
             + 16.0 * (double)basisDimBSE * nstates      // eigenvector output
         ) / (1ULL << 30);
+        if(useCholesky_){
+            // reconstruction stage: XpY+XmY+eigvec (transient) then X+Y+eigvec_full (peak)
+            double recon_gb = (16.0*basisDimBSE*nstates*2          // X, Y peak
+                            + 16.0*(2*basisDimBSE)*(2*nstates)  // eigvec_full
+                            ) / (1ULL << 30);
+            estimated_gb = std::max(estimated_gb, recon_gb);
+        }
     }
     else if(method == "diag"){
         estimated_gb = (!this->tammdancoff_ && !useCholesky_)
@@ -1406,9 +1421,12 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                     // eigval = arma::sqrt(eigval);
                     
                     int dim = choleskyL_.n_rows;
-                    // arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
                     arma::cx_mat XpY = choleskyL_        * eigvec;  // L * v       (= X+Y, before scaling)
                     arma::cx_mat XmY = choleskyLinv_.t() * eigvec;  // L^{-†} * v  (= X-Y, before scaling)
+                    
+                    eigvec.reset();               // eigvec no longer needed once XpY/XmY exist
+                    choleskyL_.reset();
+                    choleskyLinv_.reset();
                                                     
                     for(int i = 0; i < nall; i++){
                         XpY.col(i) /= std::sqrt(eigval(i));
@@ -1416,6 +1434,9 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                     }
                     arma::cx_mat X = 0.5 * (XpY + XmY);
                     arma::cx_mat Y = 0.5 * (XpY - XmY);
+                    
+                    XpY.reset(); 
+                    XmY.reset();     // same as above
                     
                     // std::cout <<"\n"<< arma::norm(Y)/arma::norm(X)<<"\n"<< std::endl;
                     // for(int i = 0; i < std::min(nall, 5); i++){
@@ -1428,12 +1449,15 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                     eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
                     eigvec_full.submat(0,    nall,  dim-1,   2*nall-1) = X;
                     eigvec_full.submat(dim,  nall,  2*dim-1, 2*nall-1) = Y;
-                    eigvec = eigvec_full;
+                    
+                    X.reset(); 
+                    Y.reset();
+                    eigvec = std::move(eigvec_full);
                     
                     arma::vec eigval_full(2*nall);
                     eigval_full.subvec(0,     nall-1)   = -arma::flipud(eigval);
                     eigval_full.subvec(nall,  2*nall-1) =  eigval;
-                    eigval = eigval_full;
+                    eigval = std::move(eigval_full);
                     
                     
                     //DIAGNOSTIC cholesky eigvals should be mirrored
@@ -1456,12 +1480,6 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                     sorted_indices = arma::sort_index(eigval, "ascend");
                     eigval = eigval(sorted_indices);
                     eigvec = eigvec.cols(sorted_indices);
-                    
-                    // std::cout << "eig_gen state 0: |X|^2+|Y|^2 = " 
-                    // << arma::norm(eigvec.col(0).head(basisDimBSE/2))*arma::norm(eigvec.col(0).head(basisDimBSE/2))
-                    // + arma::norm(eigvec.col(0).tail(basisDimBSE/2))*arma::norm(eigvec.col(0).tail(basisDimBSE/2))
-                    // << std::endl;
-                    // std::cout << "Eigval order " << sorted_indices << std::flush;
                 }
                 
             }
@@ -1507,10 +1525,13 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                 // eigval = arma::sqrt(eigval);
                 
                 int dim = choleskyL_.n_rows;
-                // arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
 
                 arma::cx_mat XpY = choleskyL_        * eigvec;  // L * v       (= X+Y, before scaling)
                 arma::cx_mat XmY = choleskyLinv_.t() * eigvec;  // L^{-†} * v  (= X-Y, before scaling)
+                
+                eigvec.reset();               // eigvec no longer needed once XpY/XmY exist
+                choleskyL_.reset();
+                choleskyLinv_.reset();
                 
                 for(int i = 0; i < nall; i++){
                     XpY.col(i) /= std::sqrt(eigval(i));
@@ -1519,17 +1540,23 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                 arma::cx_mat X = 0.5 * (XpY + XmY);
                 arma::cx_mat Y = 0.5 * (XpY - XmY);
                 
+                XpY.reset(); 
+                XmY.reset();     // same as above
+                
                 arma::cx_mat eigvec_full(2*dim, 2*nall, arma::fill::zeros);
                 eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::fliplr(arma::conj(Y));
                 eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
                 eigvec_full.submat(0,    nall,  dim-1,   2*nall-1) = X;
                 eigvec_full.submat(dim,  nall,  2*dim-1, 2*nall-1) = Y;
-                eigvec = eigvec_full;
+                
+                X.reset(); 
+                Y.reset();
+                eigvec = std::move(eigvec_full);
                 
                 arma::vec eigval_full(2*nall);
                 eigval_full.subvec(0,     nall-1)   = -arma::flipud(eigval);
                 eigval_full.subvec(nall,  2*nall-1) =  eigval;
-                eigval = eigval_full;
+                eigval = std::move(eigval_full);
             }
             else{
                 throw std::runtime_error(
@@ -1564,10 +1591,13 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                 // eigval = arma::sqrt(eigval);
                 
                 int dim = choleskyL_.n_rows;
-                // arma::cx_mat XpY = choleskyLinv_.t() * eigvec;  // L^{-†} * z
                 
                 arma::cx_mat XpY = choleskyL_        * eigvec;  // L * v       (= X+Y, before scaling)
                 arma::cx_mat XmY = choleskyLinv_.t() * eigvec;  // L^{-†} * v  (= X-Y, before scaling)
+                
+                eigvec.reset();               // eigvec no longer needed once XpY/XmY exist
+                choleskyL_.reset();
+                choleskyLinv_.reset();
                 
                 for(int i = 0; i < nall; i++){
                     XpY.col(i) /= std::sqrt(eigval(i));
@@ -1576,17 +1606,23 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
                 arma::cx_mat X = 0.5 * (XpY + XmY);
                 arma::cx_mat Y = 0.5 * (XpY - XmY);
                 
+                XpY.reset(); 
+                XmY.reset();     // same as above
+                
                 arma::cx_mat eigvec_full(2*dim, 2*nall, arma::fill::zeros);
                 eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::fliplr(arma::conj(Y));
                 eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
                 eigvec_full.submat(0,    nall,  dim-1,   2*nall-1) = X;
                 eigvec_full.submat(dim,  nall,  2*dim-1, 2*nall-1) = Y;
-                eigvec = eigvec_full;
+                
+                X.reset(); 
+                Y.reset();
+                eigvec = std::move(eigvec_full);
                 
                 arma::vec eigval_full(2*nall);
                 eigval_full.subvec(0,     nall-1)   = -arma::flipud(eigval);
                 eigval_full.subvec(nall,  2*nall-1) =  eigval;
-                eigval = eigval_full;
+                eigval = std::move(eigval_full);
                 
             }
             else{
