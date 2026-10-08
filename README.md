@@ -74,6 +74,38 @@ INCLUDE = -I/dir/armadillo/include -I/another_dir/OpenBLAS/include/
 LIBS = -L/another_dir/OpenBLAS/lib
 ```
 
+## HDF5 output
+With HDF5 support (`libhdf5-dev`), build with `make build HDF5=1` and `make xatu HDF5=1`. The `-H` (`--hdf5`) flag then writes all
+exciton outputs to one compressed archive, `<label>.h5`, instead of the separate text files. The energies are always stored;
+`-c`, `-k`, `-r` and `-s` add the states, the k-space and real-space wavefunctions and the spin, as they do for the text output.
+`--compression` sets the gzip level (0-9, default 4). The absorption spectrum (`-a`) and the self-energy (`-i`) are still written as text.
+```
+xatu system.model exciton.txt -n 100 -c -k -r 1 -s -H
+```
+Layout (energies in eV, lengths in the units of the system file, arrays in C order, band and k indices 0-based):
+```
+/                    attributes: calculation parameters (k mesh, bands, potential, dielectric, cutoff, TDA, command line, ...)
+/system              bravais_lattice, reciprocal_lattice, motif, orbitals
+/kpoints             (nk, 3) BZ mesh of the BSE
+/bands               indices, energies (nk, nbands), eigenvectors (nk, nbands, norb) with -c
+/basis               (dim, 3) electron-hole basis: valence band, conduction band, k index (with -c)
+/realspace           positions, cell, atom of the sites of the real-space wavefunction (with -r)
+/summary             energies, degeneracy_group, spin of all stored states
+/excitons/0001 ...   one group per state, ordered by energy: eigval, state, state_antiresonant (no TDA),
+                     kwf (nk), rswf (nsites), spin (total, hole, electron)
+```
+Here `kwf` is the probability per k point, summing to 1 (the text `.kwf` divides it by the spacing of the first two k points
+and replicates it over the neighbouring zones), and `rswf[site]` is the electron probability at `/realspace/positions[site]`.
+Reading it from Python:
+```python
+import h5py
+with h5py.File("hBN.h5") as f:
+    E = f["summary/energies"][()]
+    X = f["excitons/0001/state"][()]      # complex128, indexed like /basis
+    kwf = f["excitons/0001/kwf"][()]      # on f["kpoints"]
+```
+`test/check_hdf5_export.py` compares the archive with the text outputs of the same run.
+
 ## Documentation
 The documentation for the library is generated using Doxygen. To build it, we have to install Doxygen and then run from the ```/docs```folder:
 ```

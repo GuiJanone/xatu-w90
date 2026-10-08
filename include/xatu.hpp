@@ -17,3 +17,4 @@
 #include "xatu/forward_declaration.hpp"
 #include "xatu/interactions.hpp"
 #include "xatu/HDF5Configuration.hpp"
+#include "xatu/ExcitonHDF5.hpp"

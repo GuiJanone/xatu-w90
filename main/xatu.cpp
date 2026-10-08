@@ -36,9 +36,11 @@ int main(int argc, char* argv[]){
     TCLAP::SwitchArg     eigenstatesArg("c", "eigenstates", "Write eigenstates.", false);
     TCLAP::SwitchArg     reciprocalArg("k", "kwf", "Write reciprocal wavefunction.", false);
     TCLAP::MultiArg<int> realspaceArg("r", "rswf", "Write real-space wavefunction.", false, "Atom index, [no. unit cells]");
-    outputOptions.add(energyArg).add(eigenstatesArg).add(reciprocalArg).add(realspaceArg);
+    TCLAP::SwitchArg     hdf5Arg("H", "hdf5", "Write the outputs to the compressed HDF5 archive <label>.h5 instead of text files. Energies are always stored; -c, -k, -r and -s add the states, k w.f., real-space w.f. and spin.", false);
+    outputOptions.add(energyArg).add(eigenstatesArg).add(reciprocalArg).add(realspaceArg).add(hdf5Arg);
     cmd.add(outputOptions);
     TCLAP::SwitchArg outputArg("o", "output", "Write to file information about the excitons.", cmd, false);
+    TCLAP::ValueArg<int> compressionArg("", "compression", "gzip level (0-9) of the HDF5 archive (-H).", false, 4, "level", cmd);
 
     std::vector<std::string> methods = {"diag", "davidson", "sparse", "zheevr"};
     TCLAP::ValuesConstraint<std::string> allowedMethods(methods);
@@ -75,6 +77,15 @@ int main(int argc, char* argv[]){
     }
     else if(rsInfo.size() > 2){
         throw std::invalid_argument("-r takes at most two values, holeIndex and ncells");
+    }
+
+    if(hdf5Arg.isSet()){
+        #ifndef ARMA_USE_HDF5
+        throw std::invalid_argument("-H requires Xatu built with HDF5 support ('make build HDF5=1', 'make xatu HDF5=1')");
+        #endif
+        if(compressionArg.getValue() < 0 || compressionArg.getValue() > 9){
+            throw std::invalid_argument("--compression must be between 0 and 9");
+        }
     }
 
     std::string systemfile  = systemArg.getValue();
@@ -220,7 +231,32 @@ int main(int argc, char* argv[]){
     std::string output = excitonConfig->excitonInfo.label;
 
     // --------------------------- Output ---------------------------
-    bool writeEigvals = energyArg.isSet();
+    bool writeHDF5 = hdf5Arg.isSet();
+    if(writeHDF5){
+        xatu::HDF5ExportOptions h5options;
+        h5options.filename    = output + ".h5";
+        h5options.nstates     = nstates_print;
+        h5options.writeStates = eigenstatesArg.isSet();
+        h5options.writeKWF    = reciprocalArg.isSet();
+        h5options.writeRSWF   = realspaceArg.isSet();
+        h5options.writeSpin   = spinArg.isSet();
+        h5options.holeIndex   = holeIndex;
+        h5options.ncellsRSWF  = ncellsRSWF;
+        h5options.compression = compressionArg.getValue();
+        h5options.precision   = decimals;
+        h5options.method      = method;
+        h5options.energyCutoff = encut;
+        h5options.systemFile  = systemfile;
+        h5options.excitonFile = excitonfile;
+        for(int i = 0; i < argc; i++){
+            h5options.commandLine += (i ? " " : "") + std::string(argv[i]);
+        }
+
+        std::cout << "Writing HDF5 archive: " << h5options.filename << std::endl;
+        xatu::writeExcitonHDF5(bulkExciton, *results, *excitonConfig, h5options);
+    }
+
+    bool writeEigvals = energyArg.isSet() && !writeHDF5;
     if(writeEigvals){
         std::string filename_en = output + ".eigval";
         FILE* textfile_en = fopen(filename_en.c_str(), "w");
@@ -244,7 +280,7 @@ int main(int argc, char* argv[]){
         fclose(textfile_selfen);
     }
     
-    bool writeStates = eigenstatesArg.isSet();
+    bool writeStates = eigenstatesArg.isSet() && !writeHDF5;
     if(writeStates){
         std::string filename_st = output + ".states";
         FILE* textfile_st = fopen(filename_st.c_str(), "w");
@@ -255,7 +291,7 @@ int main(int argc, char* argv[]){
         fclose(textfile_st);
     }
     
-    bool writeWF = reciprocalArg.isSet();
+    bool writeWF = reciprocalArg.isSet() && !writeHDF5;
     if(writeWF){
         std::string filename_kwf = output + ".kwf";
         FILE* textfile_kwf = fopen(filename_kwf.c_str(), "w");
@@ -269,7 +305,7 @@ int main(int argc, char* argv[]){
         fclose(textfile_kwf);
     }
     
-    bool writeRSWF = realspaceArg.isSet();
+    bool writeRSWF = realspaceArg.isSet() && !writeHDF5;
     if(writeRSWF){
         std::string filename_rswf = output + ".rswf";
         FILE* textfile_rswf = fopen(filename_rswf.c_str(), "w");
@@ -291,7 +327,7 @@ int main(int argc, char* argv[]){
         results->writeAbsorptionSpectrum();
     }
 
-    bool writeSpin = spinArg.isSet();
+    bool writeSpin = spinArg.isSet() && !writeHDF5;
     if(writeSpin){
         std::string filename_spin = output + ".spin";
         FILE* textfile_spin = fopen(filename_spin.c_str(), "w");
