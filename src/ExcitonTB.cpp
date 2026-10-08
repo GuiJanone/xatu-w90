@@ -555,18 +555,40 @@ double ExcitonTB::keldyshFT(arma::rowvec q){
  * @return Motif lattice Fourier transform of the Keldysh potential at k.
  */
 std::complex<double> ExcitonTB::motifFourierTransform(int fAtomIndex, int sAtomIndex, const arma::rowvec& k, 
-                                                      const arma::mat& cells, potptr potential){
+                                                      const arma::mat& cells, potptr potential, bool taper){
 
     std::complex<double> imag(0,1);
     std::complex<double> Vk = 0.0;
     arma::rowvec firstAtom = system->motif.row(fAtomIndex).subvec(0, 2);
     arma::rowvec secondAtom = system->motif.row(sAtomIndex).subvec(0, 2);
 
+    // Truncate on a disc centred on the PAIR separation, |R + t_i - t_j| <= cutoff, not on the cell
+    // index R. A point-group operation maps a motif pair onto another pair only up to a lattice vector
+    // L (t_i' - t_j' = g(t_i - t_j) + L), and only a pair-centred truncation is invariant under that
+    // shift; truncating on |R| (the cell list) as well made the summed region the intersection of two
+    // offset discs, which broke the point-group symmetry of the interaction at O(1) -- e.g. C3 in
+    // monolayer TMDs, where the Q = 0 exchange then split the bright E' exciton doublets. The cell
+    // list must contain this disc for every pair: see interactionCells().
+    // With taper = true (used for the Q = 0 EXCHANGE kernel only) the edge is a cosine over the outer half of
+    // the cutoff instead of a sharp step. The exchange couples charge-NEUTRAL transition densities, whose
+    // monopole and dipole parts cancel in the far-field lattice sum only if every pair sees the same
+    // boundary; with a sharp pair-centred edge each pair gains or loses whole lattice points independently,
+    // leaving an O(1) remainder that changes erratically with the cutoff (i.e. with ncell): on MoS2 the
+    // Q = 0 exchange matrix still differed by 54% between ncell = 60 and 90. Tapered, it is converged to
+    // 0.07% by ncell = 45. The direct term is left untapered: its densities are not neutral, its truncation
+    // is the long-standing design, and tapering it moved exchange-off MoS2 spectra by 27% at ncell = 30.
+    double pairCutoff = arma::norm(system->bravaisLattice.row(0)) * cutoff_ + 1E-5;
+    double taperStart = 0.5 * pairCutoff;
     for(int n = 0; n < cells.n_rows; n++){
         arma::rowvec cell = cells.row(n);
-        // double module = arma::norm(cell + firstAtom - secondAtom);
         arma::rowvec dist = cell + firstAtom - secondAtom;
-        Vk += (this->*potential)(dist)*std::exp(imag*arma::dot(k, cell));
+        double r = arma::norm(dist);
+        if (r > pairCutoff) continue;
+        double weight = 1.0;
+        if (taper && r > taperStart){
+            weight = 0.5*(1. + std::cos(PI*(r - taperStart)/(pairCutoff - taperStart)));
+        }
+        Vk += weight*(this->*potential)(dist)*std::exp(imag*arma::dot(k, cell));
     }
     Vk /= pow(totalCells, 1);
 
@@ -580,14 +602,14 @@ std::complex<double> ExcitonTB::motifFourierTransform(int fAtomIndex, int sAtomI
  * @param potential Pointer to potential function.
  * @return void
  */
-arma::cx_mat ExcitonTB::motifFTMatrix(const arma::rowvec& k, const arma::mat& cells, potptr potential){
+arma::cx_mat ExcitonTB::motifFTMatrix(const arma::rowvec& k, const arma::mat& cells, potptr potential, bool taper){
     // Uses hermiticity of V
     int natoms = system->natoms;
     arma::cx_mat motifFT = arma::zeros<arma::cx_mat>(natoms, natoms);
 
     for(int fAtomIndex = 0; fAtomIndex < natoms; fAtomIndex++){
         for(int sAtomIndex = fAtomIndex; sAtomIndex < natoms; sAtomIndex++){
-            motifFT(fAtomIndex, sAtomIndex) = motifFourierTransform(fAtomIndex, sAtomIndex, k, cells, potential);
+            motifFT(fAtomIndex, sAtomIndex) = motifFourierTransform(fAtomIndex, sAtomIndex, k, cells, potential, taper);
             motifFT(sAtomIndex, fAtomIndex) = conj(motifFT(fAtomIndex, sAtomIndex));
         }   
     }
@@ -817,6 +839,32 @@ void ExcitonTB::initializeMotifFT(int i, const arma::mat& cells, potptr potentia
     ftMotifStack.slice(i) = motifFTMatrix(system->meshBZ.row(i), cells, potential);
 }
 
+/**
+ * Lattice cells over which the motif Fourier transforms are summed.
+ * @details motifFourierTransform truncates on |R + t_i - t_j| <= cutoff, a disc centred on each motif
+ * pair, so the cell list must contain that whole disc for EVERY pair: its radius is the cutoff plus the
+ * largest separation between two motif positions, and the combinations scanned must reach that radius
+ * along every lattice direction (interplanar distance 2*pi/|b_i|).
+ * @return Matrix of cells (cartesian coordinates), one per row.
+ */
+arma::mat ExcitonTB::interactionCells(){
+    double cutoffRadius = arma::norm(system->bravaisLattice.row(0)) * cutoff_;
+    double maxSeparation = 0;
+    for(int i = 0; i < system->natoms; i++){
+        for(int j = 0; j < system->natoms; j++){
+            double separation = arma::norm(system->motif.row(i).subvec(0, 2) - system->motif.row(j).subvec(0, 2));
+            maxSeparation = std::max(maxSeparation, separation);
+        }
+    }
+    double radius = cutoffRadius + maxSeparation;
+    double minHeight = 1E300;
+    for(int i = 0; i < system->ndim; i++){
+        minHeight = std::min(minHeight, 2.*PI/arma::norm(system->reciprocalLattice.row(i)));
+    }
+    int nrange = 2*(int)std::ceil(radius/minHeight) + 3;
+    return system_->truncateSupercell(std::max((int)ncell, nrange), radius);
+}
+
 
 /**
  * Main method to compute all the relevant single-particle quantities (bands, eigenstates and fourier transforms),
@@ -827,8 +875,7 @@ void ExcitonTB::initializeMotifFT(int i, const arma::mat& cells, potptr potentia
  */ 
 void ExcitonTB::initializeResultsH0(){
     int nTotalBands = bandList.n_elem;
-    double radius = arma::norm(system->bravaisLattice.row(0)) * cutoff_;
-    arma::mat cells = system_->truncateSupercell(ncell, radius);
+    arma::mat cells = interactionCells();
     int nk = system->nk;
     int natoms = system->natoms;
     int basisdim = system->basisdim;
@@ -961,7 +1008,7 @@ void ExcitonTB::initializeResultsH0(){
     }
     if(this->exchange){
         potptr exchangePotential = selectPotential(this->exchangePotential_);
-        this->ftMotifQ = motifFTMatrix(this->Q, cells, exchangePotential);
+        this->ftMotifQ = motifFTMatrix(this->Q, cells, exchangePotential, true);   // tapered: see motifFourierTransform
     }
 };
 
@@ -2031,8 +2078,7 @@ double ExcitonTB::edgeFermiGoldenRule(const ExcitonTB& targetExciton,
     }
     
     // Now compute motif FT using k of edge pair
-    double radius = arma::norm(system->bravaisLattice.row(0)) * cutoff_;
-    arma::mat cells = system_->truncateSupercell(ncell, radius);
+    arma::mat cells = interactionCells();
     potptr potential = selectPotential(this->potential_);
 
     int natoms = system->natoms;
