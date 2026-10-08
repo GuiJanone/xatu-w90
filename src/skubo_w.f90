@@ -599,11 +599,14 @@ do iR=1,nR
   do ialpha=1,norb
     do ialphap=1,ialpha
     
-      ! Check if each direction is defined (thus periodic)
-      ! generalization of Quintela et. al. (2023) DOI: 10.1103/PhysRevB.107.235416
-      Rx = merge(Rvec(iR,1), rhop(1,iR,ialpha,ialphap), nrkx /= 0)
-      Ry = merge(Rvec(iR,2), rhop(2,iR,ialpha,ialphap), nrky /= 0)
-      Rz = merge(Rvec(iR,3), rhop(3,iR,ialpha,ialphap), nrkz /= 0)
+      ! Lattice vector components. Along a non-periodic direction (z in a 2D crystal) the lattice
+      ! component is 0, so dH/dk and dS/dk vanish there and the velocity along it comes entirely from the
+      ! position matrix elements (akernel), i.e. i[H, r] with the full position operator
+      ! (Quintela & Pedersen, PRB 107, 235416 (2023), Eq. 15). Substituting r(R) for R here added a
+      ! spurious term i r(R) H(R), product element by element.
+      Rx = Rvec(iR,1)
+      Ry = Rvec(iR,2)
+      Rz = Rvec(iR,3)
 
       hderhop(1,iR,ialpha,ialphap)=complex(0.0d0,Rx)*hhop(ialpha,ialphap,iR)
       hderhop(2,iR,ialpha,ialphap)=complex(0.0d0,Ry)*hhop(ialpha,ialphap,iR)
@@ -760,13 +763,8 @@ do nnp=1,nn
       pgauge(nj,nn,nnp)=pgauge(nj,nn,nnp)+ &
       conjg(amu)*amup*pgaugekernel(nj,ialpha,ialphap)
 
-      if ( ( nrkx == 0 .and. nj == 1) .or. ( nrky == 0 .and. nj == 2) .or. ( nrkz == 0 .and. nj == 3) )then
-        vjseudoa(nj,nn,nnp)=vjseudoa(nj,nn,nnp)+ &
-        conjg(amu)*amup*hderkernel(nj,ialpha,ialphap)*(scissor+e(nnp)-e(nn))
-      else
-        vjseudoa(nj,nn,nnp)=vjseudoa(nj,nn,nnp)+ &
-        conjg(amu)*amup*hderkernel(nj,ialpha,ialphap)
-      end if
+      vjseudoa(nj,nn,nnp)=vjseudoa(nj,nn,nnp)+ &
+      conjg(amu)*amup*hderkernel(nj,ialpha,ialphap)
 
       vjseudob(nj,nn,nnp)=vjseudob(nj,nn,nnp)+conjg(amu)*amup* &
       (e(nn)*akernel(nj,ialpha,ialphap)-e(nnp)*conjg(akernel(nj,ialphap,ialpha)))* &
