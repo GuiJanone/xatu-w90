@@ -1700,7 +1700,7 @@ void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& ei
     double tolI = 1E-9*wmax, tolN = 1E-8;
     std::vector<arma::uword> res, neg;
     int ncomplex = 0, nnegres = 0;
-    double minres = 0.0;
+    double minres = 0.0, maxim = 0.0;
     for (arma::uword j = 0; j < w.n_elem; j++){
         arma::cx_vec x = V.col(j).head(N), y = V.col(j).tail(N);
         double nrm = std::real(arma::cdot(x, x) - arma::cdot(y, y));
@@ -1712,13 +1712,13 @@ void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& ei
         else{
             resonant = (std::abs(w(j).imag()) > tolI) ? (w(j).imag() > 0) : (w(j).real() >= 0);
         }
-        if (std::abs(w(j).imag()) > tolI && resonant) ncomplex++;
+        if (std::abs(w(j).imag()) > tolI && resonant){ ncomplex++; maxim = std::max(maxim, std::abs(w(j).imag())); }
         if (resonant && w(j).real() < -tolI){ nnegres++; minres = std::min(minres, w(j).real()); }
         (resonant ? res : neg).push_back(j);
     }
-    std::cerr << "WARNING (full BSE, unstable reference): " << ncomplex << " mode(s) with complex frequency and "
-              << nnegres << " positive-norm mode(s) at negative energy (lowest " << minres << " eV). Energies are "
-              << "reported as Re(w)." << std::endl;
+    std::cerr << "WARNING (full BSE, unstable reference): " << ncomplex << " mode(s) with complex frequency (largest "
+              << "|Im w| = " << maxim << " eV) and " << nnegres << " positive-norm mode(s) at negative energy (lowest "
+              << minres << " eV). Energies are reported as Re(w): an unstable mode can therefore print as 0." << std::endl;
     auto byReal = [&](arma::uword a, arma::uword b){ return w(a).real() < w(b).real(); };
     std::sort(res.begin(), res.end(), byReal);
     std::sort(neg.begin(), neg.end(), byReal);
