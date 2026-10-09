@@ -4,6 +4,18 @@
 #include "xatu/ExcitonTB.hpp"
 #include "xatu/utils.hpp"
 #include "xatu/davidson.hpp"
+#include <limits>
+
+// LAPACK / BLAS used by the full-BSE (Casida) reduction
+extern "C" {
+    void zpotrf_(char* uplo, int* n, std::complex<double>* a, int* lda, int* info);
+    void zpstrf_(char* uplo, int* n, std::complex<double>* a, int* lda, int* piv, int* rank,
+                 double* tol, double* work, int* info);
+    void zherk_(char* uplo, char* trans, int* n, int* k, double* alpha, std::complex<double>* a, int* lda,
+                double* beta, std::complex<double>* c, int* ldc);
+    void ztrsm_(char* side, char* uplo, char* transa, char* diag, int* m, int* n, std::complex<double>* alpha,
+                std::complex<double>* a, int* lda, std::complex<double>* b, int* ldb);
+}
 
 using namespace arma;
 using namespace std::chrono;
@@ -1008,7 +1020,13 @@ void ExcitonTB::initializeResultsH0(){
     }
     if(this->exchange){
         potptr exchangePotential = selectPotential(this->exchangePotential_);
-        this->ftMotifQ = motifFTMatrix(this->Q, cells, exchangePotential, true);   // tapered: see motifFourierTransform
+        // realSpaceInteractionTerm(c1, c2, c3, c4, M) = <c1 c2|c3 c4> requires M = motifFT(k3 - k1), with
+        // motifFT(q) = sum_R V(R + t_i - t_j) exp(i q.R) and Bloch states sum_R exp(i k.R) C |R>. The exchange
+        // density of the resonant pair |v k, c k+Q> is c*_{k+Q} v_k, so k3 - k1 = -Q: the transform is taken at
+        // -Q. (It was taken at +Q, which is right only when the spectrum is invariant under k -> -k; with time
+        // reversal broken it moved spin-conserving excitons at finite Q by tens of meV, checked against a 3x1
+        // supercell, whose Q = 0 spectrum must equal the primitive spectra at Q = 0, b1/3 and 2b1/3.)
+        this->ftMotifQ = motifFTMatrix(-this->Q, cells, exchangePotential, true);   // tapered: see motifFourierTransform
     }
 };
 
@@ -1139,23 +1157,50 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
         basisStates = basis;
     };
     uint64_t basisDimBSE = basisStates.n_rows;
-    
-    double estimated_gb = (!this->tammdancoff_) 
-    ? (useCholesky_ ? 6.0*(double)basisDimBSE/2*(double)basisDimBSE/2*16.0/(1ULL<<30)
-    : 6.0*(double)basisDimBSE*2*(double)basisDimBSE*2*8.0/(1ULL<<30))
+
+    // Full BSE (tammdancoff = false), Casida form. X lives on the resonant pairs P+ = {|v k, c k+Q>} and Y on the
+    // antiresonant pairs P- = {c+_{v,k+Q} c_{c,k}} (momentum +Q as well, so the valence state sits at k+Q):
+    //   M = [[A, B], [-B^H, -A2^*]],   K = s3 M = [[A, B], [B^H, A2^*]],   s3 = diag(1_N, -1_N),
+    //   A_ij  = d_ij (e_c(k+Q) - e_v(k))   + <c_{k+Q} v'_{k'}   | v_k     c'_{k'+Q}> - <c_{k+Q} v'_{k'}   | c'_{k'+Q} v_k    >
+    //   A2_ij = d_ij (e_c(k)   - e_v(k+Q)) + <c_k     v'_{k'+Q} | v_{k+Q} c'_{k'}  > - <c_k     v'_{k'+Q} | c'_{k'}   v_{k+Q}>
+    //   B_ij  =                              <c_{k+Q} c'_{k'}   | v_k v'_{k'+Q}    > - <c_{k+Q} c'_{k'}   | v'_{k'+Q} v_k    >
+    // (A2 = A(-Q) on P-, B rectangular P+ x P-; at Q = 0, A2 = A and B = B^T.) K is Hermitian; it is the Thouless
+    // stability matrix, positive definite for a stable mean-field reference. The previous implementation used
+    // Sander, Maggio & Kresse, PRB 92, 045209 (2015), Eq. 33 (Hermitian [[A,B],[B,A]]), but that form needs the
+    // antiresonant orbitals at -k (their Eq. 32, phi_{n,-k} = phi*_{nk}); it was fed elements built at +k' and
+    // completed with a conjugate transpose, which is gauge dependent and gapped the Goldstone mode of a
+    // self-consistent Hartree-Fock ferromagnet by ~70 meV (exact TDHF: 0, Thouless 1960).
+    const bool fullBSE = !this->tammdancoff_;
+    const bool finiteQ = arma::norm(this->Q) > 1E-12;
+    if(fullBSE && mode != "realspace"){
+        throw std::invalid_argument("BShamiltonian(): the full BSE (tammdancoff = false) is implemented in "
+                                    "realspace mode only.");
+    }
+    if(fullBSE && finiteQ && this->selfenergy){
+        throw std::invalid_argument("BShamiltonian(): the full BSE at finite Q with selfenergy = true is not "
+                                    "implemented (the antiresonant block needs the self-energy at k+Q for the "
+                                    "valence bands and at k for the conduction bands).");
+    }
+
+    // Full BSE: K (2N x 2N) plus one copy during the Cholesky factorization, then L and S of the same size.
+    double estimated_gb = fullBSE
+    ? 2.0*(2.0*(double)basisDimBSE)*(2.0*(double)basisDimBSE)*16.0/(1ULL<<30)
     : (double)basisDimBSE*(double)basisDimBSE*16.0/(1ULL<<30);
-    std::cout << "BSE dimension: " << ((!this->tammdancoff_) ? 2*basisDimBSE : basisDimBSE) << std::endl;
+    std::cout << "BSE dimension: " << (fullBSE ? 2*basisDimBSE : basisDimBSE) << std::endl;
     std::cout << "Estimated memory requirement for Bethe-Salpeter matrix: " << estimated_gb << " GB"<< std::endl;
     std::cout << "Initializing Bethe-Salpeter matrix... " << std::flush;
-    
-    HBS_ = (!this->tammdancoff_) ? arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE) : arma::zeros<cx_mat>(basisDimBSE, basisDimBSE); 
 
-    //set blocks as 1x1 matrices for memory saving if tammdancoff approximation is being used
-    HBSres_  = (!this->tammdancoff_) ? arma::zeros<cx_mat>(basisDimBSE, basisDimBSE) : arma::zeros<cx_mat>(1, 1); 
-    HBScoup_ = (!this->tammdancoff_) ? arma::zeros<cx_mat>(basisDimBSE, basisDimBSE) : arma::zeros<cx_mat>(1, 1); 
-    
-    
-    
+    HBS_ = fullBSE ? arma::zeros<cx_mat>(2*basisDimBSE, 2*basisDimBSE) : arma::zeros<cx_mat>(basisDimBSE, basisDimBSE);
+    HBSres_.reset();
+    HBScoup_.reset();
+    choleskyL_.reset();
+    choleskyLinv_.reset();
+    useCholesky_ = false;
+    casidaNullity_ = 0;
+    // Exchange transform at +Q, needed by the Y-Y block at finite Q (ftMotifQ is the transform at -Q)
+    arma::cx_mat ftMotifPlusQ = (fullBSE && finiteQ && this->exchange) ? arma::cx_mat(arma::conj(this->ftMotifQ)) : arma::cx_mat();
+    const uint64_t N = basisDimBSE;
+
     // To be able to parallelize over the triangular matrix, we build
     uint64_t loopLength = basisDimBSE*(basisDimBSE + 1)/2.;
     
@@ -1164,8 +1209,7 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
     for(uint64_t n = 0; n < loopLength; n++){
         
         arma::cx_vec coefsK, coefsK2, coefsKQ, coefsK2Q;
-        arma::cx_vec coefsKsw, coefsK2sw, coefsKQsw, coefsK2Qsw;
-        
+
         uint64_t ii = loopLength - 1 - n;
         uint64_t m  = floor((sqrt(8*ii + 1) - 1)/2);
         uint64_t i = basisDimBSE - 1 - m;
@@ -1194,12 +1238,11 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
             coefsK2Q = eigvecKQStack.slice(k2Q_index).col(c2);
         }
         
-        std::complex<double> D, X, selfcond, selfval = 0.0;
-        std::complex<double> Dcoup, Xcoup = 0.0;
-        // std::complex<double> Dares, Xares = 0.0;
+        std::complex<double> D = 0.0, X = 0.0, selfcond = 0.0, selfval = 0.0;
+        arma::cx_mat motifFT;
         if (mode == "realspace"){
             uint64_t effective_k_index = system_->findEquivalentPointBZ(system->kpoints.row(k2_index) - system->kpoints.row(k_index), ncell);
-            arma::cx_mat motifFT = ftMotifStack.slice(effective_k_index);
+            motifFT = ftMotifStack.slice(effective_k_index);
             // Direct and exchange terms for resonant block of BSE matrix
             D = realSpaceInteractionTerm(coefsKQ, coefsK2, coefsK2Q, coefsK, motifFT);
             if(this->exchange){
@@ -1217,18 +1260,6 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                         selfval = selfenergyTerm(false, k2_index, k_index, coefsK2, coefsK);
                     }
                 }
-            }
-            if(!this->tammdancoff_){
-                // Hcoup terms correspond to a swap c2<->v2
-                coefsKsw = eigvecKStack.slice(k_index).col(c);
-                coefsKQsw = eigvecKQStack.slice(kQ_index).col(v);
-                coefsK2sw = eigvecKStack.slice(k2_index).col(c2);
-                coefsK2Qsw = eigvecKQStack.slice(k2Q_index).col(v2);
-                
-                Dcoup = realSpaceInteractionTerm(coefsK, coefsK2Qsw, coefsK2sw, coefsKQ, motifFT);
-                if(this->exchange){
-                    Xcoup = realSpaceInteractionTerm(coefsK, coefsK2Qsw, coefsKQ, coefsK2sw, this->ftMotifQ);
-                }                
             }
         }
         else if (mode == "reciprocalspace"){
@@ -1251,105 +1282,218 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                     }
                 }
             }
-            if(!this->tammdancoff_){
-                // Coupling block — swap c2<->v2
-                coefsKsw   = eigvecKStack.slice(k_index).col(c);
-                coefsKQsw  = eigvecKQStack.slice(kQ_index).col(v);
-                coefsK2sw  = eigvecKStack.slice(k2_index).col(c2);
-                coefsK2Qsw = eigvecKQStack.slice(k2Q_index).col(v2);
-                
-                Dcoup = reciprocalInteractionTerm(coefsK, coefsK2Qsw, coefsK2sw, coefsKQ, k, k2 + Q, k2, k + Q, this->nReciprocalVectors);
-                if(this->exchange){
-                    Xcoup = reciprocalInteractionTerm(coefsK, coefsK2Qsw, coefsKQ, coefsK2sw, k, k2 + Q, k + Q, k2, this->nReciprocalVectors);
-                }
-            }
         }
         
-        if (i == j){
-            if(!this->tammdancoff_){
-                HBSres_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(c) + selfcond) - (eigvalKStack.col(k_index)(v) + selfval))/2.
-                - (D - X)/2.;
-                
-                HBScoup_(i, j) = - (Dcoup - Xcoup)/2.;
-            }
-            else if(this->tammdancoff_){
+        if(!fullBSE){
+            if (i == j){
                 HBS_(i, j) = (this->scissor + (eigvalKQStack.col(kQ_index)(c) + selfcond) - (eigvalKStack.col(k_index)(v) + selfval))/2.
                 - (D - X)/2.;
             }
-        }
-        else{
-            if(!this->tammdancoff_){
-                HBSres_(i, j)  = - (D - X);
-                HBScoup_(i, j) = - (Dcoup - Xcoup);
-            }
-            else if(this->tammdancoff_){
+            else{
                 HBS_(i, j)  = - (D - X);
             }
+            continue;
+        }
+
+        // ---- Full BSE: every element of K is written explicitly (no symmetrisation afterwards) ----
+        // Coefficients in the same gauge convention as coefsK/coefsKQ above
+        auto coefs = [&](bool shifted, uint64_t kidx, uint64_t band) -> arma::cx_vec {
+            const arma::cx_cube& stack = shifted ? eigvecKQStack : eigvecKStack;
+            if(gauge == "atomic"){
+                return system_->latticeToAtomicGauge(stack.slice(kidx).col(band), system->kpoints.row(kidx));
+            }
+            return stack.slice(kidx).col(band);
         };
-    }
-    if(!this->tammdancoff_){
-        HBSres_  = HBSres_  + HBSres_.t();
-        HBScoup_ = HBScoup_ + HBScoup_.t();
-        
-        
-        // We don't explicitly compute the antiresonat block nor the antires-res block as
-        // HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ), join_cols( HBScoup_, HBSares_ ) );
-        // instead we use the explicit properties of the BSE matrix to construct them from the other two
-        // 10.1103/PhysRevB.92.045209   
-         
-        // Attempt Cholesky reduction to standard Hermitian problem.
-        // Valid when (A-B) is positive definite (positive single-particle gap).
-        // Stores L, Linv, ApB for use in diagonalizeRaw() instead of full HBS_.
-        arma::cx_mat AmB = HBSres_ - HBScoup_;
-        arma::cx_mat ApB = HBSres_ + HBScoup_;
-        
-        if(arma::chol(choleskyL_, AmB, "lower")){
-                        
-            HBSres_.reset();
-            HBScoup_.reset();
-            
-            choleskyLinv_ = arma::inv(arma::trimatl(choleskyL_));
-            HBS_ = choleskyL_.t() * ApB * choleskyL_;
-            useCholesky_ = true;
-            
-            AmB.reset();
-            ApB.reset();
-            
-            // DIAGNOSTIC STUFF
-            // Armadillo "lower" gives AmB = L * L.t() or L.t() * L?
-            // arma::cx_mat recon_LLt = choleskyL_ * choleskyL_.t();
-            // arma::cx_mat recon_LtL = choleskyL_.t() * choleskyL_;
-            // double err_LLt = arma::norm(recon_LLt - AmB, "fro") / arma::norm(AmB, "fro");
-            // double err_LtL = arma::norm(recon_LtL - AmB, "fro") / arma::norm(AmB, "fro");
-            // std::cout << "Cholesky convention check:" << std::endl;
-            // std::cout << "  ||L*L† - AmB|| / ||AmB|| = " << err_LLt << std::endl;
-            // std::cout << "  ||L†*L - AmB|| / ||AmB|| = " << err_LtL << std::endl;
-            // --- End verification ---
+        // States of the antiresonant pairs: c at k, v at k+Q
+        arma::cx_vec cY_i = coefs(false, k_index, c),  vY_i = coefs(true, k_index, v);
+        arma::cx_vec cY_j = coefs(false, k2_index, c2), vY_j = coefs(true, k2_index, v2);
+
+        // A (resonant-resonant)
+        std::complex<double> Aij = - (D - X);
+        if (i == j){
+            Aij = std::real(this->scissor + (eigvalKQStack.col(kQ_index)(c) + selfcond)
+                            - (eigvalKStack.col(k_index)(v) + selfval) - (D - X));
         }
-        else {
-            // Fallback: A-B not positive definite
-            // Build full pseudo-Hermitian matrix as before
-            AmB.reset();
-            ApB.reset();
-            choleskyL_.reset();
-            choleskyLinv_.reset();
-            
-            
-            std::cout << "Warning: Cholesky reduction failed (A-B not positive definite). "
-            << "Falling back to full BSE matrix." << std::endl;
-            HBS_ = join_rows( join_cols( HBSres_, -(HBScoup_.t()) ),
-                              join_cols( HBScoup_, -(HBSres_.t()) ) );
-            useCholesky_ = false;
-            HBSres_.reset();
-            HBScoup_.reset();
-            
+        HBS_(i, j) = Aij;
+        HBS_(j, i) = std::conj(Aij);
+
+        // A2 = A(-Q) on the antiresonant pairs; K holds A2^*
+        std::complex<double> A2ij = Aij;
+        if (finiteQ){
+            std::complex<double> D2 = realSpaceInteractionTerm(cY_i, vY_j, cY_j, vY_i, motifFT);     // k3-k1 = k'-k
+            std::complex<double> X2 = 0.0;
+            if(this->exchange){
+                X2 = realSpaceInteractionTerm(cY_i, vY_j, vY_i, cY_j, ftMotifPlusQ);                 // k3-k1 = +Q
+            }
+            A2ij = - (D2 - X2);
+            if (i == j){
+                A2ij = std::real(this->scissor + eigvalKStack.col(k_index)(c) - eigvalKQStack.col(kQ_index)(v) - (D2 - X2));
+            }
+        }
+        HBS_(N + i, N + j) = std::conj(A2ij);
+        HBS_(N + j, N + i) = A2ij;
+
+        // B (resonant i, antiresonant j):  <c_{k+Q} c'_{k'}| v_k v'_{k'+Q}> - <c_{k+Q} c'_{k'}| v'_{k'+Q} v_k>
+        std::complex<double> Bij = - realSpaceInteractionTerm(coefsKQ, cY_j, vY_j, coefsK, motifFT);    // k3-k1 = k'-k
+        if(this->exchange){
+            Bij += realSpaceInteractionTerm(coefsKQ, cY_j, coefsK, vY_j, this->ftMotifQ);                // k3-k1 = -Q
+        }
+        HBS_(i, N + j) = Bij;
+        HBS_(N + j, i) = std::conj(Bij);
+        if (i != j){
+            // B (resonant j, antiresonant i); B = B^T at Q = 0
+            std::complex<double> Bji = Bij;
+            if (finiteQ){
+                Bji = - realSpaceInteractionTerm(coefsK2Q, cY_i, vY_i, coefsK2, arma::conj(motifFT));   // k3-k1 = k-k'
+                if(this->exchange){
+                    Bji += realSpaceInteractionTerm(coefsK2Q, cY_i, coefsK2, vY_i, this->ftMotifQ);     // k3-k1 = -Q
+                }
+            }
+            HBS_(j, N + i) = Bji;
+            HBS_(N + i, j) = std::conj(Bji);
         }
     }
-    else if(this->tammdancoff_){
+    if(fullBSE){
+        std::cout << "Done" << std::endl;
+        reduceCasida();
+        return;
+    }
+    else{
         HBS_ = HBS_ + HBS_.t();
     }
     std::cout << "Done" << std::endl;
 };
+
+/**
+ * Reduction of the full (Casida) BSE M = s3 K, K = [[A, B], [B^H, A2^*]] (built in HBS_), to a Hermitian problem.
+ * @details If K = L L^H with L (2N x r) of full column rank, the nonzero eigenvalues of M = s3 L L^H are those of
+ * S = L^H s3 L (r x r, Hermitian): S u = w u  <=>  M x = w x with x = s3 L u / sqrt|w|, normalised so that
+ * x^H s3 x = sign(w). No inverse and no square root of w^2 is needed.
+ *  - K positive definite (stable mean-field reference): plain Cholesky, r = 2N, S has N positive and N negative
+ *    eigenvalues (Sylvester).
+ *  - K positive SEMIdefinite (exact zero modes, e.g. the Goldstone mode of a self-consistent broken-symmetry
+ *    reference, Thouless 1960): pivoted Cholesky (zpstrf), r = 2N - g. The g null vectors of K are the zero modes
+ *    of M; they are not of the form s3 L u when their symplectic norm is nonzero (a ferromagnet's Goldstone mode:
+ *    <[S+, S-]> ~ <Sz> != 0), so they are computed explicitly and stored in casidaNullVectors_ (orthonormal).
+ *  - K indefinite: the reference is unstable for this kernel; no Hermitian reduction exists and HBS_ is set to the
+ *    full non-Hermitian M (solved with eig_gen in diagonalizeRaw).
+ * On return: useCholesky_ = true -> HBS_ = S, choleskyL_ = L (rows in the original order), casidaNullity_ = g.
+ */
+void ExcitonTB::reduceCasida(){
+
+    int n2 = (int)HBS_.n_rows;
+    int N = n2/2;
+    char uplo = 'L';
+    int info = 0;
+    std::cout << "Reducing the full BSE (Casida form) to a Hermitian problem... " << std::flush;
+
+    casidaNullVectors_.reset();
+    arma::cx_mat L = HBS_;
+    zpotrf_(&uplo, &n2, L.memptr(), &n2, &info);
+    int rank = n2;
+    std::vector<int> piv;
+    if (info == 0){
+        HBS_.reset();
+        std::cout << "K positive definite, Cholesky." << std::endl;
+    }
+    else{
+        // Pivoted Cholesky for the semidefinite case
+        L = HBS_;
+        piv.resize(n2);
+        std::vector<double> work(2*n2);
+        double tol = -1.0;            // LAPACK default: n * eps * max(diag K)
+        zpstrf_(&uplo, &n2, L.memptr(), &n2, piv.data(), &rank, &tol, work.data(), &info);
+        for (auto& p : piv) p -= 1;   // Fortran -> C indexing
+        // Verify: the Schur complement left after `rank` steps must vanish, otherwise K is indefinite
+        // Accept residuals up to 1e-8 max(diag K): a mean field converged to ~1e-11 eV (or on a denser mesh) leaves
+        // K negative by ~1e-9 eV along its zero modes, which moves frequencies by <~1e-4 eV even for a Jordan pair;
+        // a genuinely unstable reference leaves residuals of order the instability (e.g. 2.45 eV for an SCF stopped
+        // 27 meV short of self-consistency).
+        double maxdiag = std::max(1.0, arma::max(arma::abs(arma::real(HBS_.diag()))));
+        double restol = std::max(10.0*n2*std::numeric_limits<double>::epsilon(), 1E-8)*maxdiag;
+        double resmax = 0.0;
+        int nt = n2 - rank;
+        if (nt > 0){
+            arma::uvec t(nt);
+            for (int a = 0; a < nt; a++) t(a) = piv[rank + a];
+            arma::cx_mat Lt = L.submat(rank, 0, n2 - 1, rank - 1);
+            arma::cx_mat R = HBS_.submat(t, t) - Lt*Lt.t();
+            resmax = arma::abs(R).max();
+        }
+        if (resmax > restol){
+            std::cout << std::endl;
+            std::cerr << "WARNING (full BSE): K = [[A,B],[B^H,A(-Q)^*]] is not positive semidefinite (Schur complement "
+                      << resmax << " eV after " << rank << " of " << n2 << " pivots, tolerance " << restol << " eV). The mean-field reference is "
+                      << "unstable for this interaction kernel (Thouless stability matrix), so some BSE frequencies "
+                      << "are imaginary or belong to negative-energy modes. Usual cause: a mean-field solution that "
+                      << "is not self-consistent with the BSE kernel (unconverged SCF, or a different interaction). "
+                      << "Solving the full non-Hermitian problem instead." << std::endl;
+            L.reset();
+            // M = s3 K
+            HBS_.rows(N, n2 - 1) *= -1.0;
+            useCholesky_ = false;
+            casidaNullity_ = 0;
+            return;
+        }
+        HBS_.reset();
+        // zpstrf leaves the original strict upper triangle in place
+        #pragma omp parallel for
+        for (int col = 1; col < rank; col++){
+            L.col(col).head(col).zeros();
+        }
+        // Null vectors of K: P^T K P = L L^H with L = [L11; L21]  =>  y = [-L11^{-H} L21^H; I_g], z = P y
+        int g = n2 - rank;
+        if (g > 0){
+            arma::cx_mat Y(n2, g, arma::fill::zeros);
+            arma::cx_mat rhs = L.submat(rank, 0, n2 - 1, rank - 1).t();   // L21^H (rank x g)
+            char side = 'L', lo = 'L', tr = 'C', dg = 'N';
+            std::complex<double> alpha(1.0, 0.0);
+            int ldb = rank;
+            ztrsm_(&side, &lo, &tr, &dg, &rank, &g, &alpha, L.memptr(), &n2, rhs.memptr(), &ldb);
+            for (int a = 0; a < rank; a++) Y.row(piv[a]) = -rhs.row(a);
+            for (int b = 0; b < g; b++) Y(piv[rank + b], b) = 1.0;
+            arma::cx_mat Rz;
+            arma::qr_econ(casidaNullVectors_, Rz, Y);
+        }
+        // Undo the pivoting: K = (P L)(P L)^H, row a of L belongs to original index piv[a]
+        arma::cx_mat Lp(n2, rank);
+        for (int a = 0; a < n2; a++){
+            Lp.row(piv[a]) = L.row(a).head(rank);
+        }
+        L = std::move(Lp);
+        if (rank == n2){
+            std::cout << "K positive definite (pivoted Cholesky)." << std::endl;
+        }
+        else{
+            std::cout << "K positive semidefinite with " << n2 - rank << " zero mode(s), pivoted Cholesky "
+                      << "(residual " << resmax << " eV, tolerance " << restol << " eV)." << std::endl;
+        }
+    }
+    // Zero the strict upper triangle left by zpotrf (the pivoted factor was cleaned above)
+    if (piv.empty()){
+        #pragma omp parallel for
+        for (int col = 1; col < n2; col++){
+            L.col(col).head(col).zeros();
+        }
+    }
+    // S = L^H s3 L = L_+^H L_+ - L_-^H L_-   (L_+ / L_- = rows of the resonant / antiresonant pairs)
+    arma::cx_mat S(rank, rank);
+    char up = 'U', trans = 'C';
+    int ld = n2;
+    double one = 1.0, zero = 0.0, mone = -1.0;
+    zherk_(&up, &trans, &rank, &N, &one,  L.memptr(),     &ld, &zero, S.memptr(), &rank);
+    zherk_(&up, &trans, &rank, &N, &mone, L.memptr() + N, &ld, &one,  S.memptr(), &rank);
+    #pragma omp parallel for
+    for (int col = 0; col < rank; col++){
+        for (int row = col + 1; row < rank; row++){
+            S(row, col) = std::conj(S(col, row));
+        }
+    }
+    HBS_ = std::move(S);
+    choleskyL_ = std::move(L);
+    casidaNullity_ = (uint64_t)(n2 - rank);
+    useCholesky_ = true;
+}
 
 /**
  * Routine to write the self energy contribution to each band to a file. Creates a matrix named selfen with nk rows and bands columns.
@@ -1382,12 +1526,224 @@ void ExcitonTB::writeBandSelfEnergy(FILE* file){
 
 
 /**
+ * Solves the full BSE prepared by reduceCasida().
+ * @details Output convention (unchanged, used by Result::resonantOffset): eigval holds 2m values, m antiresonant
+ * ones (negative, ascending) followed by m resonant ones (ascending); column j of eigvec is the 2N-vector (X; Y)
+ * of eigval(j), normalised to X^H X - Y^H Y = +1 (resonant) or -1 (antiresonant). At finite Q the antiresonant
+ * values are minus the excitation energies at -Q (on the k+Q-shifted mesh), not a mirror of the resonant ones.
+ * Exact zero modes (pivoted case) are reported as resonant with energy ~0 and unit Euclidean norm (their
+ * symplectic norm vanishes). Methods: 'diag' (all eigenvalues of S), 'zheevr' (nstates on each side of the
+ * middle of the spectrum of S); 'davidson' is redirected to 'zheevr' (the wanted eigenvalues of S are interior).
+ */
+void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& eigval, arma::cx_mat& eigvec){
+
+    const int64_t ARMA_HARD_LIMIT = 46340;
+    if (method == "sparse"){
+        throw std::runtime_error("diagonalizeRaw(): Lanczos method is only supported with TDA. "
+                                 "Use method='diag' or method='zheevr' for the full BSE.");
+    }
+    if (method == "davidson"){
+        std::cout << "Note: Davidson targets extremal eigenvalues, the full BSE needs interior ones; using zheevr." << std::endl;
+        method = "zheevr";
+    }
+
+    if (useCholesky_){
+        int64_t r = HBS_.n_rows;
+        int64_t N = choleskyL_.n_rows/2;
+        // Zero modes (null vectors of K, pivoted case): split by the sign of their symplectic norm x^H s3 x.
+        // With g+ / g- / g0 positive / negative / zero-norm ones, S = L^H s3 L has N - g- - g0 negative
+        // eigenvalues, g0 zeros (the same zero-norm null vectors again, Jordan case; dropped) and N - g+ - g0
+        // positive ones (Sylvester).
+        arma::cx_mat Zres, Zneg;
+        int64_t gp = 0, gm = 0, g0 = 0;
+        if (casidaNullVectors_.n_cols > 0){
+            arma::cx_mat sZ = casidaNullVectors_;
+            sZ.rows(N, 2*N - 1) *= -1.0;
+            arma::cx_mat Gm = casidaNullVectors_.t()*sZ;
+            arma::vec mu;
+            arma::cx_mat Cm;
+            arma::eig_sym(mu, Cm, arma::cx_mat(0.5*(Gm + Gm.t())));
+            arma::cx_mat Wz = casidaNullVectors_*Cm;
+            std::vector<arma::uword> ip, im;
+            for (arma::uword a = 0; a < mu.n_elem; a++){
+                if (mu(a) > 1E-6){ Wz.col(a) /= std::sqrt(mu(a)); ip.push_back(a); gp++; }
+                else if (mu(a) < -1E-6){ Wz.col(a) /= std::sqrt(-mu(a)); im.push_back(a); gm++; }
+                else { ip.push_back(a); g0++; }
+            }
+            Zres = Wz.cols(arma::uvec(std::vector<arma::uword>(ip.begin(), ip.end())));
+            Zneg = Wz.cols(arma::uvec(std::vector<arma::uword>(im.begin(), im.end())));
+            std::cout << "Zero modes of K: " << gp << " with positive, " << gm << " with negative and " << g0
+                      << " with zero symplectic norm." << std::endl;
+            casidaNullVectors_.reset();
+        }
+        int64_t nNegS = N - gm - g0;    // ascending spectrum of S: [0, nNegS) negative, [nNegS, first) zeros
+        int64_t first = N - gm;         // first positive eigenvalue of S
+        if (method == "diag" && r > ARMA_HARD_LIMIT){
+            std::cout << "Reduced BSE dimension " << r << " exceeds Armadillo's single-allocation limit (max ~46340)."
+                      << " Switching to Zheevr." << std::endl;
+            method = "zheevr";
+        }
+        // Scale of S, for the zero-mode tolerance: max_j (L^H L)_jj
+        double scaleS = 1.0;
+        for (arma::uword col = 0; col < choleskyL_.n_cols; col++){
+            scaleS = std::max(scaleS, std::pow(arma::norm(choleskyL_.col(col)), 2));
+        }
+        arma::vec lam;
+        arma::cx_mat U;
+        int64_t i0 = 0;
+        if (method == "diag"){
+            std::cout << "Estimated memory requirement for BSE diagonalization: "
+                      << 3.0*16.0*(double)r*(double)r/(1ULL << 30) << " GB" << std::endl;
+            std::cout << "Solving BSE with exact diagonalization of the reduced Hermitian problem (dimension "
+                      << r << ")... " << std::flush;
+            arma::eig_sym(lam, U, HBS_);
+        }
+        else if (method == "zheevr"){
+            int64_t m = (nstates > 0) ? nstates : N;
+            int il = (int)std::max<int64_t>(1, nNegS - m + 1);
+            int iu = (int)std::min<int64_t>(r, first + m);
+            std::cout << "Estimated memory requirement for BSE diagonalization: "
+                      << (16.0*(double)r*(double)r + 16.0*(double)r*(iu - il + 1 + 66.0))/(1ULL << 30) << " GB" << std::endl;
+            std::cout << "Solving BSE with partial diagonalization (zheevr) of the reduced Hermitian problem "
+                      << "(dimension " << r << ", eigenvalues " << il << ".." << iu << ")... " << std::flush;
+            diagonalize_partial_range(lam, U, HBS_, il, iu);
+            i0 = il - 1;
+        }
+        else{
+            throw std::invalid_argument("diagonalizeRaw(): unknown method '" + method + "'");
+        }
+        HBS_.reset();
+
+        // x = s3 L u / sqrt|w|
+        arma::cx_mat V = choleskyL_ * U;
+        U.reset();
+        choleskyL_.reset();
+        V.rows(N, 2*N - 1) *= -1.0;
+        double zeroTol = 1E3*std::numeric_limits<double>::epsilon()*scaleS;
+        std::vector<arma::uword> res, neg;
+        int nzero = 0, nbad = 0;
+        for (arma::uword col = 0; col < lam.n_elem; col++){
+            int64_t idx = i0 + col;
+            if (idx >= nNegS && idx < first) continue;       // duplicates of zero-norm null vectors
+            bool resonant = idx >= first;
+            if (std::abs(lam(col)) > zeroTol){
+                V.col(col) /= std::sqrt(std::abs(lam(col)));
+                if ((resonant && lam(col) < 0) || (!resonant && lam(col) > 0)) nbad++;
+            }
+            else{
+                // numerically zero frequency in the plain-Cholesky case (K singular to rounding): its symplectic
+                // norm is not resolved, keep the Euclidean normalisation
+                V.col(col) /= arma::norm(V.col(col));
+                if (resonant) nzero++;
+            }
+            (resonant ? res : neg).push_back(col);
+        }
+        nzero += gp + g0;
+        if (nzero > 0){
+            std::cout << std::endl << "Note (full BSE): " << nzero << " resonant zero mode(s) (e.g. the Goldstone mode of a "
+                      << "self-consistent broken-symmetry reference), reported with energy 0." << std::endl;
+        }
+        if (nbad > 0){
+            std::cerr << "WARNING (full BSE): " << nbad << " eigenvalue(s) on the wrong side of zero for their branch "
+                      << "(unexpected inertia of S); check the results." << std::endl;
+        }
+        // Resonant: zero modes (energy 0) then the positive eigenvalues of S; antiresonant: those closest to zero
+        int64_t nzr = Zres.n_cols, nzn = Zneg.n_cols;
+        int64_t m = nzr + (int64_t)res.size();
+        int64_t nnAvail = nzn + (int64_t)neg.size();
+        int64_t nn = std::min<int64_t>(m, nnAvail);
+        int64_t npad = m - nn;
+        arma::vec resVal(m);
+        arma::cx_mat resVec(2*N, m);
+        for (int64_t a = 0; a < nzr; a++){ resVal(a) = 0.0; resVec.col(a) = Zres.col(a); }
+        for (int64_t a = 0; a < (int64_t)res.size(); a++){ resVal(nzr + a) = lam(res[a]); resVec.col(nzr + a) = V.col(res[a]); }
+        arma::vec negVal(nnAvail);
+        arma::cx_mat negVec(2*N, nnAvail);
+        for (int64_t a = 0; a < (int64_t)neg.size(); a++){ negVal(a) = lam(neg[a]); negVec.col(a) = V.col(neg[a]); }
+        for (int64_t a = 0; a < nzn; a++){ negVal(neg.size() + a) = 0.0; negVec.col(neg.size() + a) = Zneg.col(a); }
+        eigval.set_size(2*m);
+        eigvec.set_size(2*N, 2*m);
+        for (int64_t a = 0; a < npad; a++){
+            // placeholders (mirrored partners) when fewer antiresonant states were computed
+            eigval(a) = -resVal(m - 1 - a);
+            eigvec.col(a) = arma::join_cols(arma::conj(resVec.col(m - 1 - a).tail(N)), arma::conj(resVec.col(m - 1 - a).head(N)));
+        }
+        for (int64_t a = 0; a < nn; a++){
+            eigval(npad + a) = negVal(nnAvail - nn + a);
+            eigvec.col(npad + a) = negVec.col(nnAvail - nn + a);
+        }
+        eigval.subvec(m, 2*m - 1) = resVal;
+        eigvec.cols(m, 2*m - 1) = resVec;
+        return;
+    }
+
+    // ---- K indefinite: full non-Hermitian problem, HBS_ = M = s3 K ----
+    int64_t n2 = HBS_.n_rows;
+    int64_t N = n2/2;
+    if (n2 > ARMA_HARD_LIMIT){
+        throw std::runtime_error("diagonalizeRaw(): the full BSE of dimension " + std::to_string(n2) + " has no Hermitian "
+                                 "reduction (K indefinite, unstable reference, see the warning above) and exceeds "
+                                 "Armadillo's single-allocation limit for the non-Hermitian solver.");
+    }
+    if (method != "diag"){
+        std::cout << "Note: no Hermitian reduction exists (K indefinite); method '" << method
+                  << "' replaced by the full non-Hermitian solver." << std::endl;
+    }
+    std::cout << "Estimated memory requirement for BSE diagonalization: "
+              << 3.0*16.0*(double)n2*(double)n2/(1ULL << 30) << " GB" << std::endl;
+    std::cout << "Solving BSE with the non-Hermitian solver (eig_gen, dimension " << n2 << ")... " << std::flush;
+    arma::cx_vec w;
+    arma::cx_mat V;
+    arma::eig_gen(w, V, HBS_);
+    HBS_.reset();
+    double wmax = std::max(1.0, arma::max(arma::abs(w)));
+    double tolI = 1E-9*wmax, tolN = 1E-8;
+    std::vector<arma::uword> res, neg;
+    int ncomplex = 0, nnegres = 0;
+    double minres = 0.0;
+    for (arma::uword j = 0; j < w.n_elem; j++){
+        arma::cx_vec x = V.col(j).head(N), y = V.col(j).tail(N);
+        double nrm = std::real(arma::cdot(x, x) - arma::cdot(y, y));
+        bool resonant;
+        if (std::abs(nrm) > tolN){
+            resonant = nrm > 0;
+            V.col(j) /= std::sqrt(std::abs(nrm));
+        }
+        else{
+            resonant = (std::abs(w(j).imag()) > tolI) ? (w(j).imag() > 0) : (w(j).real() >= 0);
+        }
+        if (std::abs(w(j).imag()) > tolI && resonant) ncomplex++;
+        if (resonant && w(j).real() < -tolI){ nnegres++; minres = std::min(minres, w(j).real()); }
+        (resonant ? res : neg).push_back(j);
+    }
+    std::cerr << "WARNING (full BSE, unstable reference): " << ncomplex << " mode(s) with complex frequency and "
+              << nnegres << " positive-norm mode(s) at negative energy (lowest " << minres << " eV). Energies are "
+              << "reported as Re(w)." << std::endl;
+    auto byReal = [&](arma::uword a, arma::uword b){ return w(a).real() < w(b).real(); };
+    std::sort(res.begin(), res.end(), byReal);
+    std::sort(neg.begin(), neg.end(), byReal);
+    if (res.size() != neg.size()){
+        std::cerr << "WARNING (full BSE): " << res.size() << " resonant vs " << neg.size() << " antiresonant modes." << std::endl;
+    }
+    int64_t m = std::min(res.size(), neg.size());
+    eigval.set_size(2*m);
+    eigvec.set_size(n2, 2*m);
+    for (int64_t a = 0; a < m; a++){
+        arma::uword s = neg[neg.size() - m + a];
+        eigval(a) = w(s).real();
+        eigvec.col(a) = V.col(s);
+        eigval(m + a) = w(res[a]).real();
+        eigvec.col(m + a) = V.col(res[a]);
+    }
+}
+
+/**
  * Routine to diagonalize the BSE and return a Result object.
- * @param method Method to diagonalize the BSE, either 'diag' (standard diagonalization) 
+ * @param method Method to diagonalize the BSE, either 'diag' (standard diagonalization)
  * 'davidson' (iterative diagonalization) or 'sparse' (Lanczos).
  * @param nstates Number of states to be stored from the diagonalization.
  * @return Result object storing the exciton energies and states.
- */ 
+ */
 ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
 
     if (HBS.empty() || HBS.is_zero()){
@@ -1397,8 +1753,15 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     arma::vec eigval;
     arma::cx_mat eigvec;
 
+    if (!this->tammdancoff_){
+        diagonalizeCasida(method, nstates, eigval, eigvec);
+        HBS_.reset();
+        std::cout << "Done" << std::endl;
+        return new ResultTB(this, eigval, eigvec);
+    }
+
     uint64_t basisDimBSE = this->basisStates.n_rows;
-    double estimated_gb;
+    double estimated_gb = 0.0;
     if(method == "zheevr"){
         estimated_gb = (
             16.0 * (double)basisDimBSE * basisDimBSE             // input matrix (destroyed in-place)
@@ -1406,18 +1769,9 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
             + 8.0  * (double)basisDimBSE * 24.0         // LRWORK
             + 16.0 * (double)basisDimBSE * nstates      // eigenvector output
         ) / (1ULL << 30);
-        if(useCholesky_){
-            // reconstruction stage: XpY+XmY+eigvec (transient) then X+Y+eigvec_full (peak)
-            double recon_gb = (16.0*basisDimBSE*nstates*2          // X, Y peak
-                            + 16.0*(2*basisDimBSE)*(2*nstates)  // eigvec_full
-                            ) / (1ULL << 30);
-            estimated_gb = std::max(estimated_gb, recon_gb);
-        }
     }
     else if(method == "diag"){
-        estimated_gb = (!this->tammdancoff_ && !useCholesky_)
-        ? (3.0 * 4.0 * (double)basisDimBSE * basisDimBSE * 8.0) / (1ULL << 30)  // full BSE, eig_gen
-        : (3.0 *       (double)basisDimBSE * basisDimBSE * 8.0) / (1ULL << 30); // TDA, eig_sym
+        estimated_gb = (3.0 * (double)basisDimBSE * basisDimBSE * 8.0) / (1ULL << 30); // TDA, eig_sym
     }
     else if(method == "davidson"){
         int max_sub = std::max(10 * nstates, 50);
@@ -1446,93 +1800,7 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     if (method == "diag"){
         std::cout << "exact diagonalization... " << std::flush;
         try {
-            if(!this->tammdancoff_){
-                if(useCholesky_){
-                    // Full BSE, Cholesky path:
-                    // HBS_ already stores C = L^{-1}(A+B)L^{-†} (Hermitian, half dimension)
-                    // Eigenvalues of C are E^2
-                    arma::eig_sym(eigval, eigvec, HBS);
-                    
-                    // get number of elements of eigval. same check for all diagonalization procedures
-                    int nall = (int)eigval.n_elem;
-                    
-                    eigval = arma::sqrt(arma::clamp(eigval, 0.0, eigval.max()));
-                    // double floorThreshold = std::max(1e-12, 1e-10 * eigval.max());
-                    // arma::uword nBad = arma::find(eigval < floorThreshold).eval().n_elem;
-                    // if(nBad > 0){
-                    //     std::cerr << "Warning: " << nBad << " exciton state(s) have near-zero excitation "
-                    //     "energy (< " << floorThreshold << " eV); X/Y decomposition is "
-                    //     "numerically marginal for these states." << std::endl;
-                    // }
-                    // eigval = arma::clamp(eigval, floorThreshold, eigval.max());
-                    // eigval = arma::sqrt(eigval);
-                    
-                    int dim = choleskyL_.n_rows;
-                    arma::cx_mat XpY = choleskyL_        * eigvec;  // L * v       (= X+Y, before scaling)
-                    arma::cx_mat XmY = choleskyLinv_.t() * eigvec;  // L^{-†} * v  (= X-Y, before scaling)
-                    
-                    eigvec.reset();               // eigvec no longer needed once XpY/XmY exist
-                    choleskyL_.reset();
-                    choleskyLinv_.reset();
-                                                    
-                    for(int i = 0; i < nall; i++){
-                        XpY.col(i) /= std::sqrt(eigval(i));
-                        XmY.col(i) *= std::sqrt(eigval(i));
-                    }
-                    arma::cx_mat X = 0.5 * (XpY + XmY);
-                    arma::cx_mat Y = 0.5 * (XpY - XmY);
-                    
-                    XpY.reset(); 
-                    XmY.reset();     // same as above
-                    
-                    // std::cout <<"\n"<< arma::norm(Y)/arma::norm(X)<<"\n"<< std::endl;
-                    // for(int i = 0; i < std::min(nall, 5); i++){
-                    //     double xn = arma::norm(X.col(i)); // magnitude of X for state i
-                    //     double yn = arma::norm(Y.col(i));
-                    //     std::cout << "state " << i << ": X'X-Y'Y = " << xn*xn - yn*yn << std::endl;
-                    // }
-                    arma::cx_mat eigvec_full(2*dim, 2*nall, arma::fill::zeros);
-                    eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::fliplr(arma::conj(Y));
-                    eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
-                    eigvec_full.submat(0,    nall,  dim-1,   2*nall-1) = X;
-                    eigvec_full.submat(dim,  nall,  2*dim-1, 2*nall-1) = Y;
-                    
-                    X.reset(); 
-                    Y.reset();
-                    eigvec = std::move(eigvec_full);
-                    
-                    arma::vec eigval_full(2*nall);
-                    eigval_full.subvec(0,     nall-1)   = -arma::flipud(eigval);
-                    eigval_full.subvec(nall,  2*nall-1) =  eigval;
-                    eigval = std::move(eigval_full);
-                    
-                    
-                    //DIAGNOSTIC cholesky eigvals should be mirrored
-                    // int nall2 = (int)eigval.n_elem / 2;
-                    // std::cout << "Cholesky eigval check (first 3 pairs):" << std::endl;
-                    // for(int i = 0; i < std::min(3, nall2); i++){
-                    //     std::cout << "  antires[" << i << "]=" << eigval(nall2 - i - 1)
-                    //     << "  res[" << i << "]=" << eigval(nall2 + i) << std::endl;
-                    // }
-                }
-                else{
-                    // Full BSE, Cholesky failed
-                    // HBS_ is the full pseudo-Hermitian 2N x 2N matrix.
-                    std::cout << "(non-Hermitian fallback)... " << std::flush;
-                    arma::cx_vec cx_eigval;
-                    arma::uvec   sorted_indices;
-                    arma::eig_gen(cx_eigval, eigvec, HBS);
-                    eigval = arma::real(cx_eigval);
-                    
-                    sorted_indices = arma::sort_index(eigval, "ascend");
-                    eigval = eigval(sorted_indices);
-                    eigvec = eigvec.cols(sorted_indices);
-                }
-                
-            }
-            else if(this->tammdancoff_){
-                arma::eig_sym(eigval, eigvec, HBS);
-            }
+            arma::eig_sym(eigval, eigvec, HBS);
         } catch (const std::exception& e) {
             std::cerr << "Diagonalization failed: " << e.what() << std::endl;
             std::cerr << "BSE matrix stats:" << std::endl;
@@ -1548,148 +1816,16 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     else if (method == "zheevr"){
         std::cout << "partial diagonalization (zheevr)... " << std::flush;
         
-        if(this->tammdancoff_){
-            arma::cx_mat HBS_mutable = std::move(HBS_);
-            diagonalize_partial(eigval, eigvec, HBS_mutable, nstates);
-        }
-        else{
-            if(useCholesky_){
-                arma::cx_mat HBS_mutable = std::move(HBS_);
-                diagonalize_partial(eigval, eigvec, HBS_mutable, nstates);
-                
-                
-                int nall = (int)eigval.n_elem;
-                
-                eigval = arma::sqrt(arma::clamp(eigval, 0.0, eigval.max()));
-                // double floorThreshold = std::max(1e-12, 1e-10 * eigval.max());
-                // arma::uword nBad = arma::find(eigval < floorThreshold).eval().n_elem;
-                // if(nBad > 0){
-                //     std::cerr << "Warning: " << nBad << " exciton state(s) have near-zero excitation "
-                //     "energy (< " << floorThreshold << " eV); X/Y decomposition is "
-                //     "numerically marginal for these states." << std::endl;
-                // }
-                // eigval = arma::clamp(eigval, floorThreshold, eigval.max());
-                // eigval = arma::sqrt(eigval);
-                
-                int dim = choleskyL_.n_rows;
-
-                arma::cx_mat XpY = choleskyL_        * eigvec;  // L * v       (= X+Y, before scaling)
-                arma::cx_mat XmY = choleskyLinv_.t() * eigvec;  // L^{-†} * v  (= X-Y, before scaling)
-                
-                eigvec.reset();               // eigvec no longer needed once XpY/XmY exist
-                choleskyL_.reset();
-                choleskyLinv_.reset();
-                
-                for(int i = 0; i < nall; i++){
-                    XpY.col(i) /= std::sqrt(eigval(i));
-                    XmY.col(i) *= std::sqrt(eigval(i));
-                }
-                arma::cx_mat X = 0.5 * (XpY + XmY);
-                arma::cx_mat Y = 0.5 * (XpY - XmY);
-                
-                XpY.reset(); 
-                XmY.reset();     // same as above
-                
-                arma::cx_mat eigvec_full(2*dim, 2*nall, arma::fill::zeros);
-                eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::fliplr(arma::conj(Y));
-                eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
-                eigvec_full.submat(0,    nall,  dim-1,   2*nall-1) = X;
-                eigvec_full.submat(dim,  nall,  2*dim-1, 2*nall-1) = Y;
-                
-                X.reset(); 
-                Y.reset();
-                eigvec = std::move(eigvec_full);
-                
-                arma::vec eigval_full(2*nall);
-                eigval_full.subvec(0,     nall-1)   = -arma::flipud(eigval);
-                eigval_full.subvec(nall,  2*nall-1) =  eigval;
-                eigval = std::move(eigval_full);
-            }
-            else{
-                throw std::runtime_error(
-                    "diagonalizeRaw(): zheevr for full BSE requires positive-definite "
-                    "(A-B). Cholesky decomposition failed for this system.");
-            }
-        }
+        arma::cx_mat HBS_mutable = std::move(HBS_);
+        diagonalize_partial(eigval, eigvec, HBS_mutable, nstates);
     }
     else if (method == "davidson"){
         std::cout << "Davidson method... " << std::flush;
         
-        if(this->tammdancoff_){
-            davidson_method_new(eigval, eigvec, HBS, nstates);
-        }
-        else{
-            if(useCholesky_){
-                
-                davidson_method(eigval, eigvec, HBS, nstates);
-                
-                
-                int nall = (int)eigval.n_elem;
-                
-                eigval = arma::sqrt(arma::clamp(eigval, 0.0, eigval.max()));
-                // double floorThreshold = std::max(1e-12, 1e-10 * eigval.max());
-                // arma::uword nBad = arma::find(eigval < floorThreshold).eval().n_elem;
-                // if(nBad > 0){
-                //     std::cerr << "Warning: " << nBad << " exciton state(s) have near-zero excitation "
-                //     "energy (< " << floorThreshold << " eV); X/Y decomposition is "
-                //     "numerically marginal for these states." << std::endl;
-                // }
-                // eigval = arma::clamp(eigval, floorThreshold, eigval.max());
-                // eigval = arma::sqrt(eigval);
-                
-                int dim = choleskyL_.n_rows;
-                
-                arma::cx_mat XpY = choleskyL_        * eigvec;  // L * v       (= X+Y, before scaling)
-                arma::cx_mat XmY = choleskyLinv_.t() * eigvec;  // L^{-†} * v  (= X-Y, before scaling)
-                
-                eigvec.reset();               // eigvec no longer needed once XpY/XmY exist
-                choleskyL_.reset();
-                choleskyLinv_.reset();
-                
-                for(int i = 0; i < nall; i++){
-                    XpY.col(i) /= std::sqrt(eigval(i));
-                    XmY.col(i) *= std::sqrt(eigval(i));
-                }
-                arma::cx_mat X = 0.5 * (XpY + XmY);
-                arma::cx_mat Y = 0.5 * (XpY - XmY);
-                
-                XpY.reset(); 
-                XmY.reset();     // same as above
-                
-                arma::cx_mat eigvec_full(2*dim, 2*nall, arma::fill::zeros);
-                eigvec_full.submat(0,    0,     dim-1,   nall-1) = -arma::fliplr(arma::conj(Y));
-                eigvec_full.submat(dim,  0,     2*dim-1, nall-1) =  arma::fliplr(arma::conj(X));
-                eigvec_full.submat(0,    nall,  dim-1,   2*nall-1) = X;
-                eigvec_full.submat(dim,  nall,  2*dim-1, 2*nall-1) = Y;
-                
-                X.reset(); 
-                Y.reset();
-                eigvec = std::move(eigvec_full);
-                
-                arma::vec eigval_full(2*nall);
-                eigval_full.subvec(0,     nall-1)   = -arma::flipud(eigval);
-                eigval_full.subvec(nall,  2*nall-1) =  eigval;
-                eigval = std::move(eigval_full);
-                
-            }
-            else{
-                // Non-positive-definite fallback: pseudo-Hermitian Davidson
-                // Not implemented — warn and throw
-                throw std::runtime_error(
-                    "diagonalizeRaw(): Davidson for full BSE requires positive-definite "
-                    "(A-B). Cholesky decomposition failed for this system. "
-                    "Use method='diag' with the non-Hermitian fallback.");
-            }
-        }
+        davidson_method_new(eigval, eigvec, HBS, nstates);
     }
     else if (method == "sparse"){
         std::cout << "Lanczos method... " << std::flush;
-        
-        if(!this->tammdancoff_){
-            throw std::runtime_error(
-                "diagonalizeRaw(): Lanczos method is only supported with TDA. "
-                "Use method='diag' or method='davidson/zheevr' for full BSE.");
-        }
         
         arma::cx_vec cx_eigval;
         eigs_opts opts;

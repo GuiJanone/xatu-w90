@@ -288,4 +288,46 @@ void diagonalize_partial(arma::vec& eigval, arma::cx_mat& eigvec,
 }
                          
 
+
+/**
+ * Eigenpairs il..iu (1-based, ascending) of the Hermitian matrix H with LAPACK zheevr (RANGE = 'I').
+ * H is destroyed. Used by the full BSE, whose wanted eigenvalues sit in the middle of the spectrum.
+ */
+void diagonalize_partial_range(arma::vec& eigval, arma::cx_mat& eigvec, arma::cx_mat& H, int il, int iu){
+
+    int n   = H.n_rows;
+    int lda = n, ldz = n;
+    int m_found = 0, info = 0;
+    int nwant = iu - il + 1;
+    double abstol = 0.0, vl = 0.0, vu = 0.0;
+    int lwork = -1, lrwork = -1, liwork = -1;
+    eigval.set_size(n);
+    eigvec.set_size(n, nwant);
+    std::vector<int> isuppz(2*nwant);
+    std::complex<double> work_query;
+    double rwork_query;
+    int    iwork_query;
+    char V='V', I='I', U='U';
+    zheevr_(&V, &I, &U, &n, H.memptr(), &lda, &vl, &vu, &il, &iu, &abstol, &m_found,
+            eigval.memptr(), eigvec.memptr(), &ldz, isuppz.data(),
+            &work_query, &lwork, &rwork_query, &lrwork, &iwork_query, &liwork, &info);
+    if(info != 0)
+        throw std::runtime_error("zheevr workspace query failed with info=" + std::to_string(info));
+    lwork  = (int)work_query.real();
+    lrwork = (int)rwork_query;
+    liwork = iwork_query;
+    arma::cx_vec     work(lwork);
+    arma::vec        rwork(lrwork);
+    std::vector<int> iwork(liwork);
+    zheevr_(&V, &I, &U, &n, H.memptr(), &lda, &vl, &vu, &il, &iu, &abstol, &m_found,
+            eigval.memptr(), eigvec.memptr(), &ldz, isuppz.data(),
+            work.memptr(), &lwork, rwork.memptr(), &lrwork, iwork.data(), &liwork, &info);
+    if(info != 0)
+        throw std::runtime_error("zheevr failed with info=" + std::to_string(info));
+    if(m_found < nwant)
+        std::cerr << "Warning: zheevr found only " << m_found << " of " << nwant << " requested eigenvalues." << std::endl;
+    eigval.resize(m_found);
+    eigvec.resize(n, m_found);
+}
+
 }

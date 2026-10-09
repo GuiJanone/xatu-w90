@@ -156,6 +156,12 @@ class ExcitonTB : public Exciton<SystemTB> {
         // Diagonalization
         ResultTB* diagonalizeRaw(std::string method = "diag", int nstates = 8) override;
 
+        // Full BSE (Casida form): reduction of M = s3 K to a Hermitian problem, and its solution
+        uint64_t casidaNullity_ = 0;     // number of zero modes of K (pivoted Cholesky)
+        arma::cx_mat casidaNullVectors_; // orthonormal null vectors of K (pivoted Cholesky)
+        void reduceCasida();
+        void diagonalizeCasida(std::string method, int nstates, arma::vec& eigval, arma::cx_mat& eigvec);
+
     public:
         // BSE initialization and energies
         void initializeHamiltonian();
