@@ -170,8 +170,17 @@ rky,rkz,fk_ex,ldfk,e_ex,eigval_stack,eigvec_stack)
     deallocate(sigma_w_sp_local)
     !$OMP END PARALLEL
 
-    ! Exciton Kubo oscillators
+    ! Exciton Kubo oscillators. The 1/E_n form holds for excitations at E_n > 0 only: exact zero modes of
+    ! the full BSE (e.g. Goldstone modes, reported at E = 0) and negative-energy modes of an unstable
+    ! reference are left out, otherwise round-off oscillator strengths divided by 0 turn the spectrum to NaN.
+    e_ex_min = 1.0d-6/27.211385d0
+    nskip = 0
     do nn=1,norb_ex_cut
+      if (e_ex(nn) .le. e_ex_min) then
+        skubo_ex_int(:,:,nn) = 0.0d0
+        nskip = nskip + 1
+        cycle
+      end if
       do nj=1,3
         do njp=1,3
           skubo_ex_int(nj,njp,nn)=pi/(dble(npointstotal)*vcell) &
@@ -179,6 +188,10 @@ rky,rkz,fk_ex,ldfk,e_ex,eigval_stack,eigvec_stack)
         end do
       end do
     end do
+    if (nskip .gt. 0) then
+      write(*,'(a,i0,a)') ' Note (absorption): ', nskip, &
+        ' exciton state(s) with energy <= 1e-6 eV (zero or unstable modes) left out of the conductivity.'
+    end if
 
     ! Apply broadening — parallelized over tensor components.
     ! Loop bounds are both fixed (1:3), so COLLAPSE(2) is safe here.
