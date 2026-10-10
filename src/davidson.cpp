@@ -1,4 +1,5 @@
 #include "xatu/davidson.hpp"
+#include "xatu/lapack_int.hpp"
 
 namespace xatu {
 
@@ -199,26 +200,26 @@ void davidson_method_new(
 extern "C" void zheevr_(char*,               // JOBZ
                         char*,               // RANGE  
                         char*,               // UPLO
-                        int*,                // N
+                        lapack_int*,                // N
                         std::complex<double>*, // A
-                        int*,                // LDA
+                        lapack_int*,                // LDA
                         double*,             // VL
                         double*,             // VU
-                        int*,                // IL
-                        int*,                // IU
+                        lapack_int*,                // IL
+                        lapack_int*,                // IU
                         double*,             // ABSTOL
-                        int*,                // M
+                        lapack_int*,                // M
                         double*,             // W
                         std::complex<double>*, // Z
-                        int*,                // LDZ
-                        int*,                // ISUPPZ
+                        lapack_int*,                // LDZ
+                        lapack_int*,                // ISUPPZ
                         std::complex<double>*, // WORK
-                        int*,                // LWORK
+                        lapack_int*,                // LWORK
                         double*,             // RWORK
-                        int*,                // LRWORK
-                        int*,                // IWORK
-                        int*,                // LIWORK
-                        int*);               // INFO
+                        lapack_int*,                // LRWORK
+                        lapack_int*,                // IWORK
+                        lapack_int*,                // LIWORK
+                        lapack_int*);               // INFO
 
 void diagonalize_partial(arma::vec& eigval, arma::cx_mat& eigvec, 
                          arma::cx_mat& H, int nstates, bool preserve_H){
@@ -232,21 +233,28 @@ void diagonalize_partial(arma::vec& eigval, arma::cx_mat& eigvec,
     
     
     
-    int n   = Hptr->n_rows;
-    int lda = n, ldz = n;
-    int il  = 1, iu = nstates;
-    int m_found;
+    lapack_int n   = Hptr->n_rows;
+    lapack_int lda = n, ldz = n;
+    // nstates = 0 (the -n 0 convention for "all states") or more than the dimension: return every eigenpair.
+    // Without this, IU = 0 < IL made LAPACK reject the call, which crashed TDA runs above dimension 32766,
+    // where 'diag' is switched to zheevr automatically (32-bit LAPACK).
+    if(nstates <= 0 || nstates > n) nstates = n;
+    lapack_int il  = 1, iu = nstates;
+    lapack_int m_found;
     double abstol = 0.0, vl = 0.0, vu = 0.0;
-    int lwork = -1, lrwork = -1, liwork = -1, info;
+    lapack_int lwork = -1, lrwork = -1, liwork = -1, info;
     
-    eigval.resize(nstates);
+    // W must have length n (LAPACK): with an index range zheevr bisects (dstebz), which stores every eigenvalue
+    // tied at the boundary before discarding the extra ones, so -n inside a degenerate level wrote past an
+    // nstates-long array (heap corruption, segfault). Trimmed to the m_found eigenpairs after the call.
+    eigval.set_size(n);
     eigvec.resize(n, nstates);
-    std::vector<int> isuppz(2*n);
+    std::vector<lapack_int> isuppz(2*n);
     
     // Workspace query
     std::complex<double> work_query;
     double rwork_query;
-    int    iwork_query;
+    lapack_int iwork_query;
     char V='V', I='I', U='U';
     
     zheevr_(&V, &I, &U, &n,
@@ -261,13 +269,13 @@ void diagonalize_partial(arma::vec& eigval, arma::cx_mat& eigvec,
         throw std::runtime_error("zheevr workspace query failed with info="
         + std::to_string(info));
     
-    lwork  = (int)work_query.real();
-    lrwork = (int)rwork_query;
+    lwork  = (lapack_int)work_query.real();
+    lrwork = (lapack_int)rwork_query;
     liwork = iwork_query;
     
     arma::cx_vec     work(lwork);
     arma::vec        rwork(lrwork);
-    std::vector<int> iwork(liwork);
+    std::vector<lapack_int> iwork(liwork);
     
     zheevr_(&V, &I, &U, &n,
             Hptr->memptr(), &lda,
@@ -285,6 +293,8 @@ void diagonalize_partial(arma::vec& eigval, arma::cx_mat& eigvec,
     if(m_found < nstates)
         std::cerr << "Warning: zheevr found only " << m_found
         << " of " << nstates << " requested eigenvalues." << std::endl;
+    eigval.resize(m_found);
+    eigvec.resize(n, m_found);
 }
                          
 
@@ -293,32 +303,33 @@ void diagonalize_partial(arma::vec& eigval, arma::cx_mat& eigvec,
  * Eigenpairs il..iu (1-based, ascending) of the Hermitian matrix H with LAPACK zheevr (RANGE = 'I').
  * H is destroyed. Used by the full BSE, whose wanted eigenvalues sit in the middle of the spectrum.
  */
-void diagonalize_partial_range(arma::vec& eigval, arma::cx_mat& eigvec, arma::cx_mat& H, int il, int iu){
+void diagonalize_partial_range(arma::vec& eigval, arma::cx_mat& eigvec, arma::cx_mat& H, int il_in, int iu_in){
 
-    int n   = H.n_rows;
-    int lda = n, ldz = n;
-    int m_found = 0, info = 0;
-    int nwant = iu - il + 1;
+    lapack_int il = il_in, iu = iu_in;
+    lapack_int n   = H.n_rows;
+    lapack_int lda = n, ldz = n;
+    lapack_int m_found = 0, info = 0;
+    lapack_int nwant = iu - il + 1;
     double abstol = 0.0, vl = 0.0, vu = 0.0;
-    int lwork = -1, lrwork = -1, liwork = -1;
+    lapack_int lwork = -1, lrwork = -1, liwork = -1;
     eigval.set_size(n);
     eigvec.set_size(n, nwant);
-    std::vector<int> isuppz(2*nwant);
+    std::vector<lapack_int> isuppz(2*nwant);
     std::complex<double> work_query;
     double rwork_query;
-    int    iwork_query;
+    lapack_int iwork_query;
     char V='V', I='I', U='U';
     zheevr_(&V, &I, &U, &n, H.memptr(), &lda, &vl, &vu, &il, &iu, &abstol, &m_found,
             eigval.memptr(), eigvec.memptr(), &ldz, isuppz.data(),
             &work_query, &lwork, &rwork_query, &lrwork, &iwork_query, &liwork, &info);
     if(info != 0)
         throw std::runtime_error("zheevr workspace query failed with info=" + std::to_string(info));
-    lwork  = (int)work_query.real();
-    lrwork = (int)rwork_query;
+    lwork  = (lapack_int)work_query.real();
+    lrwork = (lapack_int)rwork_query;
     liwork = iwork_query;
     arma::cx_vec     work(lwork);
     arma::vec        rwork(lrwork);
-    std::vector<int> iwork(liwork);
+    std::vector<lapack_int> iwork(liwork);
     zheevr_(&V, &I, &U, &n, H.memptr(), &lda, &vl, &vu, &il, &iu, &abstol, &m_found,
             eigval.memptr(), eigvec.memptr(), &ldz, isuppz.data(),
             work.memptr(), &lwork, rwork.memptr(), &lrwork, iwork.data(), &liwork, &info);
@@ -329,5 +340,32 @@ void diagonalize_partial_range(arma::vec& eigval, arma::cx_mat& eigvec, arma::cx
     eigval.resize(m_found);
     eigvec.resize(n, m_found);
 }
+
+#ifdef XATU_ILP64
+/**
+ * Stops unless the linked LAPACK really uses 64-bit integers (ILP64 build). A 32-bit library handed 64-bit
+ * integers reads the low half of every scalar argument on a little-endian machine, so a wrong link can run and
+ * return wrong results (integer arrays such as pivots are misread) instead of failing. The zheevd workspace query
+ * for N = 40000 must report a real workspace of at least 1 + 5N + 2N^2 = 3200200001 > 2^31 - 1, which a 32-bit
+ * LAPACK cannot represent.
+ */
+void check_lapack_ilp64(){
+    static bool checked = false;
+    if(checked) return;
+    char V = 'V', U = 'U';
+    lapack_int n = 40000, lwork = -1, lrwork = -1, liwork = -1, info = 0;
+    std::complex<double> a[1], work[1];
+    double w[1], rwork[1] = {0.0};
+    lapack_int iwork[1] = {0};
+    arma::lapack::heevd(&V, &U, &n, a, &n, w, work, &lwork, rwork, &lrwork, iwork, &liwork, &info);
+    const double expected = 1.0 + 5.0*(double)n + 2.0*(double)n*(double)n;
+    if(info != 0 || rwork[0] < expected - 0.5){
+        throw std::runtime_error("Xatu was built with ILP64=1 but the linked LAPACK does not use 64-bit integers "
+                                 "(zheevd workspace query for N = 40000 returned " + std::to_string(rwork[0]) +
+                                 ", info = " + std::to_string(info) + "). Relink against an ILP64 LAPACK/BLAS.");
+    }
+    checked = true;
+}
+#endif
 
 }

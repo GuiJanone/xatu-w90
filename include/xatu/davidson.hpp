@@ -10,5 +10,8 @@ namespace xatu {
     
     void diagonalize_partial(arma::vec&, arma::cx_mat&, arma::cx_mat&, int neigval = 4, bool preserve_H = false);
     void diagonalize_partial_range(arma::vec&, arma::cx_mat&, arma::cx_mat&, int il, int iu);
+#ifdef XATU_ILP64
+    void check_lapack_ilp64();
+#endif
     
 }

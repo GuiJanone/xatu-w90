@@ -17,6 +17,7 @@ INCLUDE = -I$(PWD)/include
 
 # Libraries
 LIBS = -DARMA_DONT_USE_WRAPPER -L$(PWD) -lxatu -larmadillo -lopenblas -llapack -larpack -fopenmp -lgfortran
+#LIBS = -DARMA_DONT_USE_WRAPPER -DARMA_BLAS_64BIT_INT -L$(PWD) -lxatu -larmadillo -lopenblas -llapack -larpack -fopenmp -lgfortran
 
 # Conditional flags for compilation
 ifeq ($(DEBUG), 1)
@@ -30,6 +31,24 @@ endif
 ifeq ($(HDF5), 1)
 	CFLAGS += -DARMA_USE_HDF5
 	LIBS += -lhdf5
+endif
+# LAPACK/BLAS and ARPACK can be replaced on the command line (cluster builds, MKL, ILP64), e.g.
+#   make build xatu LAPACK_LIBS="-L/path/to/openblas/lib -lopenblas"
+LAPACK_LIBS ?= -lopenblas -llapack
+ARPACK_LIBS ?= -larpack
+LIBS := $(filter-out -lopenblas -llapack -larpack,$(LIBS)) $(ARPACK_LIBS) $(LAPACK_LIBS) -lgfortran
+# 64-bit-integer LAPACK (ILP64): lifts the 32-bit workspace limit of 'diag' (zheevd, dimension <= 32766).
+# LAPACK_LIBS must then name an ILP64 library with the standard symbol names, e.g.
+#   make build xatu ILP64=1 LAPACK_LIBS="-L/opt/openblas-ilp64/lib -lopenblas" ARPACK_LIBS="-L/opt/arpack-ilp64/lib -larpack"
+# ARPACK_LIBS= (empty) builds without ARPACK (method 'sparse' unavailable). Run 'make clean' when switching.
+ifeq ($(ILP64), 1)
+    ifeq ($(origin LAPACK_LIBS), file)
+        $(error ILP64=1 needs LAPACK_LIBS pointing to a 64-bit-integer LAPACK/BLAS)
+    endif
+    LIBS := $(filter-out -larmadillo,$(LIBS)) -DARMA_BLAS_64BIT_INT -DXATU_ILP64
+    ifeq ($(strip $(ARPACK_LIBS)),)
+        LIBS += -DARMA_DONT_USE_ARPACK
+    endif
 endif
 
 # Compilation targets

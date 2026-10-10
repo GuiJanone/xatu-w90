@@ -4,17 +4,18 @@
 #include "xatu/ExcitonTB.hpp"
 #include "xatu/utils.hpp"
 #include "xatu/davidson.hpp"
+#include "xatu/lapack_int.hpp"
 #include <limits>
 
 // LAPACK / BLAS used by the full-BSE (Casida) reduction
 extern "C" {
-    void zpotrf_(char* uplo, int* n, std::complex<double>* a, int* lda, int* info);
-    void zpstrf_(char* uplo, int* n, std::complex<double>* a, int* lda, int* piv, int* rank,
-                 double* tol, double* work, int* info);
-    void zherk_(char* uplo, char* trans, int* n, int* k, double* alpha, std::complex<double>* a, int* lda,
-                double* beta, std::complex<double>* c, int* ldc);
-    void ztrsm_(char* side, char* uplo, char* transa, char* diag, int* m, int* n, std::complex<double>* alpha,
-                std::complex<double>* a, int* lda, std::complex<double>* b, int* ldb);
+    void zpotrf_(char* uplo, lapack_int* n, std::complex<double>* a, lapack_int* lda, lapack_int* info);
+    void zpstrf_(char* uplo, lapack_int* n, std::complex<double>* a, lapack_int* lda, lapack_int* piv, lapack_int* rank,
+                 double* tol, double* work, lapack_int* info);
+    void zherk_(char* uplo, char* trans, lapack_int* n, lapack_int* k, double* alpha, std::complex<double>* a, lapack_int* lda,
+                double* beta, std::complex<double>* c, lapack_int* ldc);
+    void ztrsm_(char* side, char* uplo, char* transa, char* diag, lapack_int* m, lapack_int* n, std::complex<double>* alpha,
+                std::complex<double>* a, lapack_int* lda, std::complex<double>* b, lapack_int* ldb);
 }
 
 using namespace arma;
@@ -1381,17 +1382,20 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
  */
 void ExcitonTB::reduceCasida(){
 
-    int n2 = (int)HBS_.n_rows;
-    int N = n2/2;
+#ifdef XATU_ILP64
+    check_lapack_ilp64();
+#endif
+    lapack_int n2 = HBS_.n_rows;
+    lapack_int N = n2/2;
     char uplo = 'L';
-    int info = 0;
+    lapack_int info = 0;
     std::cout << "Reducing the full BSE (Casida form) to a Hermitian problem... " << std::flush;
 
     casidaNullVectors_.reset();
     arma::cx_mat L = HBS_;
     zpotrf_(&uplo, &n2, L.memptr(), &n2, &info);
-    int rank = n2;
-    std::vector<int> piv;
+    lapack_int rank = n2;
+    std::vector<lapack_int> piv;
     if (info == 0){
         HBS_.reset();
         std::cout << "K positive definite, Cholesky." << std::endl;
@@ -1412,7 +1416,7 @@ void ExcitonTB::reduceCasida(){
         double maxdiag = std::max(1.0, arma::max(arma::abs(arma::real(HBS_.diag()))));
         double restol = std::max(10.0*n2*std::numeric_limits<double>::epsilon(), 1E-8)*maxdiag;
         double resmax = 0.0;
-        int nt = n2 - rank;
+        lapack_int nt = n2 - rank;
         if (nt > 0){
             arma::uvec t(nt);
             for (int a = 0; a < nt; a++) t(a) = piv[rank + a];
@@ -1442,13 +1446,13 @@ void ExcitonTB::reduceCasida(){
             L.col(col).head(col).zeros();
         }
         // Null vectors of K: P^T K P = L L^H with L = [L11; L21]  =>  y = [-L11^{-H} L21^H; I_g], z = P y
-        int g = n2 - rank;
+        lapack_int g = n2 - rank;
         if (g > 0){
             arma::cx_mat Y(n2, g, arma::fill::zeros);
             arma::cx_mat rhs = L.submat(rank, 0, n2 - 1, rank - 1).t();   // L21^H (rank x g)
             char side = 'L', lo = 'L', tr = 'C', dg = 'N';
             std::complex<double> alpha(1.0, 0.0);
-            int ldb = rank;
+            lapack_int ldb = rank;
             ztrsm_(&side, &lo, &tr, &dg, &rank, &g, &alpha, L.memptr(), &n2, rhs.memptr(), &ldb);
             for (int a = 0; a < rank; a++) Y.row(piv[a]) = -rhs.row(a);
             for (int b = 0; b < g; b++) Y(piv[rank + b], b) = 1.0;
@@ -1479,7 +1483,7 @@ void ExcitonTB::reduceCasida(){
     // S = L^H s3 L = L_+^H L_+ - L_-^H L_-   (L_+ / L_- = rows of the resonant / antiresonant pairs)
     arma::cx_mat S(rank, rank);
     char up = 'U', trans = 'C';
-    int ld = n2;
+    lapack_int ld = n2;
     double one = 1.0, zero = 0.0, mone = -1.0;
     zherk_(&up, &trans, &rank, &N, &one,  L.memptr(),     &ld, &zero, S.memptr(), &rank);
     zherk_(&up, &trans, &rank, &N, &mone, L.memptr() + N, &ld, &one,  S.memptr(), &rank);
@@ -1537,7 +1541,9 @@ void ExcitonTB::writeBandSelfEnergy(FILE* file){
  */
 void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& eigval, arma::cx_mat& eigvec){
 
-    const int64_t ARMA_HARD_LIMIT = 46340;
+    // The non-Hermitian solver (eig_gen) is enabled up to this dimension; it needs ~3 x 16 x n^2 bytes (96 GB
+    // here) and has not been validated above it.
+    const int64_t NONHERM_MAX_DIM = 46340;
     if (method == "sparse"){
         throw std::runtime_error("diagonalizeRaw(): Lanczos method is only supported with TDA. "
                                  "Use method='diag' or method='zheevr' for the full BSE.");
@@ -1578,9 +1584,9 @@ void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& ei
         }
         int64_t nNegS = N - gm - g0;    // ascending spectrum of S: [0, nNegS) negative, [nNegS, first) zeros
         int64_t first = N - gm;         // first positive eigenvalue of S
-        if (method == "diag" && r > ARMA_HARD_LIMIT){
-            std::cout << "Reduced BSE dimension " << r << " exceeds Armadillo's single-allocation limit (max ~46340)."
-                      << " Switching to Zheevr." << std::endl;
+        if (method == "diag" && r > ZHEEVD_MAX_DIM){
+            std::cout << "Reduced BSE dimension " << r << " exceeds the 32-bit LAPACK workspace limit of 'diag' (zheevd, max "
+                      << ZHEEVD_MAX_DIM << "). Switching to Zheevr." << std::endl;
             method = "zheevr";
         }
         // Scale of S, for the zero-mode tolerance: max_j (L^H L)_jj
@@ -1680,10 +1686,10 @@ void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& ei
     // ---- K indefinite: full non-Hermitian problem, HBS_ = M = s3 K ----
     int64_t n2 = HBS_.n_rows;
     int64_t N = n2/2;
-    if (n2 > ARMA_HARD_LIMIT){
+    if (n2 > NONHERM_MAX_DIM){
         throw std::runtime_error("diagonalizeRaw(): the full BSE of dimension " + std::to_string(n2) + " has no Hermitian "
-                                 "reduction (K indefinite, unstable reference, see the warning above) and exceeds "
-                                 "Armadillo's single-allocation limit for the non-Hermitian solver.");
+                                 "reduction (K indefinite, unstable reference, see the warning above) and exceeds the "
+                                 "largest dimension the non-Hermitian solver is enabled for (" + std::to_string(NONHERM_MAX_DIM) + ").");
     }
     if (method != "diag"){
         std::cout << "Note: no Hermitian reduction exists (K indefinite); method '" << method
@@ -1749,6 +1755,9 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     if (HBS.empty() || HBS.is_zero()){
         throw std::invalid_argument("diagonalizeRaw(): BSE Hamiltonian is not initialized.");
     }
+#ifdef XATU_ILP64
+    check_lapack_ilp64();
+#endif
 
     arma::vec eigval;
     arma::cx_mat eigvec;
@@ -1782,16 +1791,12 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
     
     std::cout << "Estimated memory requirement for BSE diagonalization: " << estimated_gb << " GB"<< std::endl;
     
-    // Hard limit from Armadillo's internal 2^31 element check (https://gitlab.com/conradsnicta/armadillo-code/-/blob/15.4.x/include/armadillo_bits/memory.hpp?ref_type=heads#L47)
-    // Something is being cast as a signed 32 bit integer. Still trying to figure out what.
-    // N*N must fit, so N_max = floor(sqrt(2^31)) = 46340
-    const int64_t ARMA_HARD_LIMIT = 46340;
-    
-    //still want to look more into it, it might have been removed via the #define ARMA_64BIT_WORD flag
-    
-    if (method == "diag" && basisDimBSE > ARMA_HARD_LIMIT){
+    // 'diag' = Armadillo eig_sym = LAPACK zheevd. With a 32-bit (LP64) LAPACK its real workspace 1 + 5N + 2N^2
+    // overflows the integer above N = 32766 (ZHEEVD_MAX_DIM, lapack_int.hpp); zheevr needs only O(N) workspace.
+    // Built with ILP64=1 against a 64-bit-integer LAPACK there is no limit.
+    if (method == "diag" && basisDimBSE > ZHEEVD_MAX_DIM){
         std::cout << "BSE dimension " << basisDimBSE 
-        << " exceeds Armadillo's single-allocation limit (max ~46340)."
+        << " exceeds the 32-bit LAPACK workspace limit of 'diag' (zheevd, max " << ZHEEVD_MAX_DIM << ")."
         << " Switching to Zheevr." << std::endl;
         method = "zheevr";
     }
