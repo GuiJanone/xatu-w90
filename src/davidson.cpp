@@ -1,5 +1,7 @@
 #include "xatu/davidson.hpp"
 #include "xatu/lapack_int.hpp"
+#include <random>
+#include <algorithm>
 
 namespace xatu {
 
@@ -367,5 +369,143 @@ void check_lapack_ilp64(){
     checked = true;
 }
 #endif
+
+
+// ---------------------------------------------------------------------------------------------------------------
+// Lowest states from the inverse of a positive definite matrix (TDA: H = L L^H; full BSE: K = L L^H, S^-1 = L^-1 s3 L^-H)
+// ---------------------------------------------------------------------------------------------------------------
+extern "C" {
+    void zpotrf_(char* uplo, lapack_int* n, std::complex<double>* a, lapack_int* lda, lapack_int* info);
+    void ztrsm_(char* side, char* uplo, char* transa, char* diag, lapack_int* m, lapack_int* n, std::complex<double>* alpha,
+                std::complex<double>* a, lapack_int* lda, std::complex<double>* b, lapack_int* ldb);
+    void ztrmm_(char* side, char* uplo, char* transa, char* diag, lapack_int* m, lapack_int* n, std::complex<double>* alpha,
+                std::complex<double>* a, lapack_int* lda, std::complex<double>* b, lapack_int* ldb);
+}
+
+long long cholesky_lower_inplace(arma::cx_mat& A){
+    char lo = 'L';
+    lapack_int n = A.n_rows, info = 0;
+    zpotrf_(&lo, &n, A.memptr(), &n, &info);
+    return info;
+}
+
+void solve_lower(const arma::cx_mat& L, arma::cx_mat& X, bool conjtrans){
+    char sd = 'L', lo = 'L', tr = conjtrans ? 'C' : 'N', dg = 'N';
+    lapack_int n = L.n_rows, b = X.n_cols;
+    std::complex<double> one(1.0, 0.0);
+    ztrsm_(&sd, &lo, &tr, &dg, &n, &b, &one, const_cast<std::complex<double>*>(L.memptr()), &n, X.memptr(), &n);
+}
+
+void multiply_lower(const arma::cx_mat& L, arma::cx_mat& X){
+    char sd = 'L', lo = 'L', tr = 'N', dg = 'N';
+    lapack_int n = L.n_rows, b = X.n_cols;
+    std::complex<double> one(1.0, 0.0);
+    ztrmm_(&sd, &lo, &tr, &dg, &n, &b, &one, const_cast<std::complex<double>*>(L.memptr()), &n, X.memptr(), &n);
+}
+
+// Block size: the operator is two triangular solves with an n x n factor, whose cost is dominated by reading the
+// factor once per block, so blocks are as wide as the subspace allows (measured: 64 -> 256 halves the time).
+long long krylov_block_size(long long n){
+    return std::max(16LL, std::min(256LL, n/16));
+}
+
+// Worth it (and safe) only when the subspace is a small part of the space; otherwise dense LAPACK is used.
+bool krylov_applicable(long long n, long long nwanted){
+    long long b = krylov_block_size(n);
+    return nwanted > 0 && 4*(nwanted + 4*b) <= n;
+}
+
+/**
+ * Extremal eigenpairs of a Hermitian operator A, given only X <- A X on blocks: the nlow algebraically smallest and
+ * the nhigh largest eigenvalues (ascending in mu) with orthonormal eigenvectors X.
+ * @details Thick-restart block Krylov (Rayleigh-Ritz on a basis expanded with the residuals of the unconverged
+ * wanted Ritz pairs, which lie in the next Krylov block). Converged when ||A x - mu x|| <= tol |mu| for every wanted
+ * pair; the eigenvalue error is then O(tol^2 |mu|). Used with A = H^-1 (TDA, lowest states = largest mu) and
+ * A = S^-1 = L^-1 s3 L^-H (full BSE, the modes closest to zero frequency = both ends of the spectrum of S^-1), where
+ * A X costs two triangular solves with a Cholesky factor that is already available, so the tridiagonal reduction of
+ * a dense eigensolver (memory bound, poor thread scaling) is avoided.
+ */
+bool block_krylov_extremal(const std::function<void(arma::cx_mat&)>& op, long long n, long long nlow, long long nhigh,
+                           arma::vec& mu, arma::cx_mat& X, double tol, KrylovReport& report){
+    const long long b = krylov_block_size(n);
+    const long long kl = nlow > 0 ? nlow + b : 0, kh = nhigh > 0 ? nhigh + b : 0;
+    const long long keep = std::min(n, kl + kh), Dmax = std::min(n, keep + 2*b);
+    const long long nw = nlow + nhigh;
+    const int maxit = 300, patience = 40;   // give up after 40 iterations without halving the worst residual
+    double best = 1E300;
+    int lastGain = 0;
+    report = KrylovReport();
+    report.block = b;
+
+    // Deterministic random start (a local generator: Armadillo's global RNG is left alone)
+    std::mt19937_64 gen(20261010);
+    std::normal_distribution<double> nd(0.0, 1.0);
+    arma::cx_mat V(n, keep), Rq;
+    for (arma::uword j = 0; j < V.n_cols; j++)
+        for (arma::uword i = 0; i < V.n_rows; i++) V(i, j) = std::complex<double>(nd(gen), nd(gen));
+    arma::qr_econ(V, Rq, arma::cx_mat(V));
+    arma::cx_mat AV = V;
+    op(AV);
+    report.applications = keep;
+
+    for (int it = 1; it <= maxit; it++){
+        report.iterations = it;
+        arma::cx_mat H = V.t()*AV;
+        H = 0.5*(H + H.t());
+        arma::vec th;
+        arma::cx_mat Y;
+        arma::eig_sym(th, Y, H);
+        const long long D = V.n_cols;
+        arma::uvec w(nw);
+        for (long long a = 0; a < nlow; a++) w(a) = a;
+        for (long long a = 0; a < nhigh; a++) w(nlow + a) = D - nhigh + a;
+        arma::cx_mat Xw = V*Y.cols(w);
+        arma::cx_mat R = AV*Y.cols(w);
+        for (long long c = 0; c < nw; c++) R.col(c) -= th(w(c))*Xw.col(c);
+        std::vector<std::pair<double, arma::uword>> unc;
+        double worst = 0.0;
+        for (long long c = 0; c < nw; c++){
+            double rel = arma::norm(R.col(c))/std::max(std::abs(th(w(c))), 1E-300);
+            worst = std::max(worst, rel);
+            if (rel > tol) unc.push_back({rel, (arma::uword)c});
+        }
+        report.residual = worst;
+        report.basis = D;
+        if (unc.empty()){
+            mu = th(w);
+            X = std::move(Xw);
+            return true;
+        }
+        if (worst < 0.5*best){ best = worst; lastGain = it; }
+        if (it - lastGain > patience) break;   // stagnation (e.g. an ill-conditioned operator)
+        if (D + b > Dmax){
+            // Thick restart: keep the kl lowest and kh highest Ritz vectors
+            arma::uvec kk(keep);
+            for (long long a = 0; a < kl; a++) kk(a) = a;
+            for (long long a = 0; a < kh; a++) kk(kl + a) = D - kh + a;
+            V = V*Y.cols(kk);
+            AV = AV*Y.cols(kk);
+        }
+        // Expand with the residuals of the least converged wanted pairs
+        std::sort(unc.rbegin(), unc.rend());
+        long long nb = std::min<long long>(b, unc.size());
+        arma::uvec pick(nb);
+        for (long long a = 0; a < nb; a++) pick(a) = unc[a].second;
+        arma::cx_mat Wn = R.cols(pick);
+        for (int pass = 0; pass < 2; pass++) Wn -= V*(V.t()*Wn);
+        arma::cx_mat Q;
+        arma::qr_econ(Q, Rq, Wn);
+        arma::vec rd = arma::abs(Rq.diag());
+        arma::uvec good = arma::find(rd > 1E-10*std::max(1E-300, rd.max()));
+        if (good.n_elem == 0 || (long long)V.n_cols + (long long)good.n_elem > n) break;
+        Q = Q.cols(good);
+        arma::cx_mat AQ = Q;
+        op(AQ);
+        report.applications += Q.n_cols;
+        V = arma::join_rows(V, Q);
+        AV = arma::join_rows(AV, AQ);
+    }
+    return false;
+}
 
 }

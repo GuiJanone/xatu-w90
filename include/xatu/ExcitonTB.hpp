@@ -159,7 +159,10 @@ class ExcitonTB : public Exciton<SystemTB> {
         // Full BSE (Casida form): reduction of M = s3 K to a Hermitian problem, and its solution
         uint64_t casidaNullity_ = 0;     // number of zero modes of K (pivoted Cholesky)
         arma::cx_mat casidaNullVectors_; // orthonormal null vectors of K (pivoted Cholesky)
+        bool choleskyTriangular_ = false; // choleskyL_ is the plain (unpivoted) lower-triangular factor of K
+        bool allowKrylov_ = true;         // 'zheevr' may use the block Krylov solver ('zheevr_lapack' forbids it)
         void reduceCasida();
+        void formCasidaS();
         void diagonalizeCasida(std::string method, int nstates, arma::vec& eigval, arma::cx_mat& eigvec);
 
     public:

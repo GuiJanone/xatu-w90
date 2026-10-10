@@ -1183,9 +1183,10 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
                                     "valence bands and at k for the conduction bands).");
     }
 
-    // Full BSE: K (2N x 2N) plus one copy during the Cholesky factorization, then L and S of the same size.
+    // Full BSE: K (2N x 2N), factorized in place (L replaces it). The pivoted factorization (zero modes) and the
+    // dense eigensolvers (S) need one more matrix of the same size; the block Krylov solver does not.
     double estimated_gb = fullBSE
-    ? 2.0*(2.0*(double)basisDimBSE)*(2.0*(double)basisDimBSE)*16.0/(1ULL<<30)
+    ? (2.0*(double)basisDimBSE)*(2.0*(double)basisDimBSE)*16.0/(1ULL<<30)
     : (double)basisDimBSE*(double)basisDimBSE*16.0/(1ULL<<30);
     std::cout << "BSE dimension: " << (fullBSE ? 2*basisDimBSE : basisDimBSE) << std::endl;
     std::cout << "Estimated memory requirement for Bethe-Salpeter matrix: " << estimated_gb << " GB"<< std::endl;
@@ -1378,7 +1379,9 @@ void ExcitonTB::BShamiltonian(const arma::imat& basis){
  *    <[S+, S-]> ~ <Sz> != 0), so they are computed explicitly and stored in casidaNullVectors_ (orthonormal).
  *  - K indefinite: the reference is unstable for this kernel; no Hermitian reduction exists and HBS_ is set to the
  *    full non-Hermitian M (solved with eig_gen in diagonalizeRaw).
- * On return: useCholesky_ = true -> HBS_ = S, choleskyL_ = L (rows in the original order), casidaNullity_ = g.
+ * On return: useCholesky_ = true -> choleskyL_ = L (rows in the original order), casidaNullity_ = g, HBS_ empty;
+ * S is formed only if a dense eigensolver needs it (formCasidaS). The plain factorization is done in place, so K
+ * and L never coexist; if it fails, K is restored from its untouched upper triangle for the pivoted one.
  */
 void ExcitonTB::reduceCasida(){
 
@@ -1392,15 +1395,27 @@ void ExcitonTB::reduceCasida(){
     std::cout << "Reducing the full BSE (Casida form) to a Hermitian problem... " << std::flush;
 
     casidaNullVectors_.reset();
-    arma::cx_mat L = HBS_;
-    zpotrf_(&uplo, &n2, L.memptr(), &n2, &info);
+    choleskyTriangular_ = false;
+    arma::cx_vec kdiag = HBS_.diag();
+    zpotrf_(&uplo, &n2, HBS_.memptr(), &n2, &info);     // in place on the lower triangle
+    arma::cx_mat L;
     lapack_int rank = n2;
     std::vector<lapack_int> piv;
     if (info == 0){
+        L = std::move(HBS_);
         HBS_.reset();
+        choleskyTriangular_ = true;
         std::cout << "K positive definite, Cholesky." << std::endl;
     }
     else{
+        // Restore K (Hermitian) from its upper triangle, which zpotrf does not touch, and the saved diagonal
+        HBS_.diag() = kdiag;
+        #pragma omp parallel for
+        for (lapack_int col = 0; col < n2; col++){
+            for (lapack_int row = col + 1; row < n2; row++){
+                HBS_(row, col) = std::conj(HBS_(col, row));
+            }
+        }
         // Pivoted Cholesky for the semidefinite case
         L = HBS_;
         piv.resize(n2);
@@ -1480,23 +1495,31 @@ void ExcitonTB::reduceCasida(){
             L.col(col).head(col).zeros();
         }
     }
-    // S = L^H s3 L = L_+^H L_+ - L_-^H L_-   (L_+ / L_- = rows of the resonant / antiresonant pairs)
+    choleskyL_ = std::move(L);
+    casidaNullity_ = (uint64_t)(n2 - rank);
+    useCholesky_ = true;
+}
+
+/**
+ * S = L^H s3 L = L_+^H L_+ - L_-^H L_-  (L_+ / L_- = rows of the resonant / antiresonant pairs), into HBS_.
+ * Needed only by the dense eigensolvers ('diag', 'zheevr_lapack', or 'zheevr' where the block Krylov solver does not
+ * apply); costs two zherk and one more matrix of the size of K.
+ */
+void ExcitonTB::formCasidaS(){
+    lapack_int n2 = choleskyL_.n_rows, N = n2/2, rank = choleskyL_.n_cols;
     arma::cx_mat S(rank, rank);
     char up = 'U', trans = 'C';
     lapack_int ld = n2;
     double one = 1.0, zero = 0.0, mone = -1.0;
-    zherk_(&up, &trans, &rank, &N, &one,  L.memptr(),     &ld, &zero, S.memptr(), &rank);
-    zherk_(&up, &trans, &rank, &N, &mone, L.memptr() + N, &ld, &one,  S.memptr(), &rank);
+    zherk_(&up, &trans, &rank, &N, &one,  choleskyL_.memptr(),     &ld, &zero, S.memptr(), &rank);
+    zherk_(&up, &trans, &rank, &N, &mone, choleskyL_.memptr() + N, &ld, &one,  S.memptr(), &rank);
     #pragma omp parallel for
-    for (int col = 0; col < rank; col++){
-        for (int row = col + 1; row < rank; row++){
+    for (lapack_int col = 0; col < rank; col++){
+        for (lapack_int row = col + 1; row < rank; row++){
             S(row, col) = std::conj(S(col, row));
         }
     }
     HBS_ = std::move(S);
-    choleskyL_ = std::move(L);
-    casidaNullity_ = (uint64_t)(n2 - rank);
-    useCholesky_ = true;
 }
 
 /**
@@ -1538,6 +1561,9 @@ void ExcitonTB::writeBandSelfEnergy(FILE* file){
  * Exact zero modes (pivoted case) are reported as resonant with energy ~0 and unit Euclidean norm (their
  * symplectic norm vanishes). Methods: 'diag' (all eigenvalues of S), 'zheevr' (nstates on each side of the
  * middle of the spectrum of S); 'davidson' is redirected to 'zheevr' (the wanted eigenvalues of S are interior).
+ * 'zheevr' with a plain Cholesky factor and nstates small against the dimension uses the block Krylov solver on
+ * S^-1 = L^-1 s3 L^-H (two triangular solves per block, no S, no tridiagonal reduction); otherwise, or with
+ * 'zheevr_lapack', LAPACK zheevr on S.
  */
 void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& eigval, arma::cx_mat& eigvec){
 
@@ -1554,7 +1580,7 @@ void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& ei
     }
 
     if (useCholesky_){
-        int64_t r = HBS_.n_rows;
+        int64_t r = choleskyL_.n_cols;
         int64_t N = choleskyL_.n_rows/2;
         // Zero modes (null vectors of K, pivoted case): split by the sign of their symplectic norm x^H s3 x.
         // With g+ / g- / g0 positive / negative / zero-norm ones, S = L^H s3 L has N - g- - g0 negative
@@ -1597,14 +1623,52 @@ void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& ei
         arma::vec lam;
         arma::cx_mat U;
         int64_t i0 = 0;
-        if (method == "diag"){
+        bool solved = false;
+        // Finite Q only: at Q = 0 a broken-symmetry reference has (near-)zero modes (Goldstone, Thouless 1960). When
+        // the plain factorization passes them through rounding, S^-1 is too ill conditioned for the iteration (on the
+        // 9x9 AFM it stagnated at a relative residual of 5e-8), and zheevr handles them directly.
+        if (method == "zheevr" && allowKrylov_ && choleskyTriangular_ && gp + gm + g0 == 0 && arma::norm(this->Q) > 1E-12
+            && krylov_applicable(r, 2*(int64_t)nstates)){
+            // Modes closest to zero frequency = both ends of the spectrum of S^-1 = L^-1 s3 L^-H
+            int64_t m = nstates;
+            std::cout << "Estimated memory requirement for BSE diagonalization: "
+                      << (16.0*(double)r*(double)r + 2.0*16.0*(double)r*(2.0*m + 4.0*krylov_block_size(r)))/(1ULL << 30) << " GB" << std::endl;
+            std::cout << "Solving BSE with block Krylov iteration on S^-1 = L^-1 s3 L^-H (dimension " << r << ", "
+                      << m << " states on each side)... " << std::flush;
+            const arma::cx_mat& Lc = choleskyL_;
+            auto op = [&Lc, N](arma::cx_mat& X){
+                solve_lower(Lc, X, true);
+                X.rows(N, 2*N - 1) *= -1.0;
+                solve_lower(Lc, X, false);
+            };
+            arma::vec mu;
+            KrylovReport rep;
+            if (block_krylov_extremal(op, r, m, m, mu, U, 1E-9, rep)){
+                arma::vec om = 1.0/mu;
+                arma::uvec o = arma::sort_index(om);
+                lam = om(o);
+                U = U.cols(o);
+                i0 = nNegS - m;
+                solved = true;
+                std::cout << "converged (" << rep.iterations << " iterations, " << rep.applications
+                          << " vector solves, block " << rep.block << ", relative residual " << rep.residual << ")... " << std::flush;
+            }
+            else{
+                std::cout << std::endl << "Note: the block Krylov solver did not converge (relative residual "
+                          << rep.residual << " after " << rep.iterations << " iterations); using LAPACK zheevr." << std::endl;
+                U.reset();
+            }
+        }
+        if (!solved && method == "diag"){
+            formCasidaS();
             std::cout << "Estimated memory requirement for BSE diagonalization: "
                       << 3.0*16.0*(double)r*(double)r/(1ULL << 30) << " GB" << std::endl;
             std::cout << "Solving BSE with exact diagonalization of the reduced Hermitian problem (dimension "
                       << r << ")... " << std::flush;
             arma::eig_sym(lam, U, HBS_);
         }
-        else if (method == "zheevr"){
+        else if (!solved && method == "zheevr"){
+            formCasidaS();
             int64_t m = (nstates > 0) ? nstates : N;
             int il = (int)std::max<int64_t>(1, nNegS - m + 1);
             int iu = (int)std::min<int64_t>(r, first + m);
@@ -1615,13 +1679,20 @@ void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& ei
             diagonalize_partial_range(lam, U, HBS_, il, iu);
             i0 = il - 1;
         }
-        else{
+        else if (!solved){
             throw std::invalid_argument("diagonalizeRaw(): unknown method '" + method + "'");
         }
         HBS_.reset();
 
         // x = s3 L u / sqrt|w|
-        arma::cx_mat V = choleskyL_ * U;
+        arma::cx_mat V;
+        if (choleskyTriangular_){
+            V = std::move(U);
+            multiply_lower(choleskyL_, V);
+        }
+        else{
+            V = choleskyL_ * U;
+        }
         U.reset();
         choleskyL_.reset();
         V.rows(N, 2*N - 1) *= -1.0;
@@ -1752,8 +1823,15 @@ void ExcitonTB::diagonalizeCasida(std::string method, int nstates, arma::vec& ei
  */
 ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
 
-    if (HBS.empty() || HBS.is_zero()){
+    const bool reduced = !this->tammdancoff_ && useCholesky_ && !choleskyL_.empty();   // full BSE, factor of K kept
+    if (!reduced && (HBS.empty() || HBS.is_zero())){
         throw std::invalid_argument("diagonalizeRaw(): BSE Hamiltonian is not initialized.");
+    }
+    // 'zheevr_lapack': LAPACK zheevr, never the block Krylov solver
+    allowKrylov_ = true;
+    if (method == "zheevr_lapack"){
+        method = "zheevr";
+        allowKrylov_ = false;
     }
 #ifdef XATU_ILP64
     check_lapack_ilp64();
@@ -1819,10 +1897,49 @@ ResultTB* ExcitonTB::diagonalizeRaw(std::string method, int nstates){
         }
     }
     else if (method == "zheevr"){
-        std::cout << "partial diagonalization (zheevr)... " << std::flush;
-        
-        arma::cx_mat HBS_mutable = std::move(HBS_);
-        diagonalize_partial(eigval, eigvec, HBS_mutable, nstates);
+        bool solved = false;
+        if (allowKrylov_ && krylov_applicable((long long)basisDimBSE, nstates)){
+            // Lowest states = largest eigenvalues of H^-1 = L^-H L^-1. The factorization is in place on the lower
+            // triangle; the upper triangle (read by zheevr) and the saved diagonal keep H for the fallback.
+            arma::cx_vec hdiag = HBS_.diag();
+            long long info = cholesky_lower_inplace(HBS_);
+            if (info == 0){
+                std::cout << "block Krylov iteration on H^-1 (Cholesky factor, " << nstates << " states)... " << std::flush;
+                const arma::cx_mat& Lc = HBS_;
+                auto op = [&Lc](arma::cx_mat& X){
+                    solve_lower(Lc, X, false);
+                    solve_lower(Lc, X, true);
+                };
+                arma::vec mu;
+                KrylovReport rep;
+                if (block_krylov_extremal(op, basisDimBSE, 0, nstates, mu, eigvec, 1E-9, rep)){
+                    arma::vec ev = 1.0/mu;
+                    arma::uvec o = arma::sort_index(ev);
+                    eigval = ev(o);
+                    eigvec = eigvec.cols(o);
+                    solved = true;
+                    std::cout << "converged (" << rep.iterations << " iterations, " << rep.applications
+                              << " vector solves, block " << rep.block << ", relative residual " << rep.residual << ")... " << std::flush;
+                }
+                else{
+                    std::cout << std::endl << "Note: the block Krylov solver did not converge (relative residual "
+                              << rep.residual << " after " << rep.iterations << " iterations); using LAPACK zheevr... " << std::flush;
+                }
+            }
+            else{
+                std::cout << std::endl << "Note: the TDA matrix is not positive definite (Cholesky failed at column "
+                          << info << "); using LAPACK zheevr... " << std::flush;
+            }
+            if (!solved){
+                HBS_.diag() = hdiag;
+                eigvec.reset();
+            }
+        }
+        if (!solved){
+            std::cout << "partial diagonalization (zheevr)... " << std::flush;
+            arma::cx_mat HBS_mutable = std::move(HBS_);
+            diagonalize_partial(eigval, eigvec, HBS_mutable, nstates);
+        }
     }
     else if (method == "davidson"){
         std::cout << "Davidson method... " << std::flush;
